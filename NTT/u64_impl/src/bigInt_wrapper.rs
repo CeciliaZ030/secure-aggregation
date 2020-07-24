@@ -23,7 +23,6 @@ pub fn transform(a: &Vec<BigUint>) -> Vec<BigUint> {
 		}
 		w_matrix.push(row);	
 	}
-	println!("w_matrix: {}", w_matrix[0][0]);
 
 	DFT(a, w_matrix, P)
 
@@ -42,33 +41,34 @@ fn DFT(a: &Vec<BigUint>, w_matrix: Vec<Vec<BigUint>>, p: BigUint) -> Vec<BigUint
                 i_rev |= 1 << ((L_bitNum - 1) - j);   
             }
         }
-		//println!("{:?}, {}", i, i_rev);
+		//println!("{:}, {}", i, i_rev);
 		b.push(a[i_rev].clone());
 	}
 
-	let mut s = 1;
-	while s < L {
+	for s in 1..(L_bitNum+1) as usize {
+		let m= pow(2,s as usize);
+		let mut i =0 as usize;
 
-		let (mut i, mut j) = (0, 0);
-
-		while i < L {
-			while j < s/2 {
-
-				let t = &w_matrix[i][j] * &b[i + j + s/2] % &p;
+		//println!("m={} L= {} , L/m= {}, w_matrix[1][L/m as usize]={}",m,L,L/m,w_matrix[1][L/m as usize]);
+		while i< L {
+			let mut j = 0;
+			while j < m/2 {
+				let t = &w_matrix[1][j*(L/m as usize)] * &b[i + j + m/2 ] % &p;
 				let u = &b[i + j] % &p;
+				
 				b[i + j] = (&u + &t) % &p;
 				if &u <= &t {
-					b[i + j + s/2] = (&t - &u) % &p;
+					b[i + j + m/2] = ((&p+&u) - &t) % &p;
 				} else {
-					b[i + j + s/2] = (&u - &t) % &p;
+					b[i + j + m/2] = (&u - &t) % &p;
 				}
 				//println!("{:?}", &b);
 				j+= 1;
+
 			}
-			i += s;
+			i += m;
 		}
-		println!("{},{},{}", i, j, s);
-		s <<= 1;
+		println!("{},{}", i, s);
 	}
 	//println!("{}", b);
 	b

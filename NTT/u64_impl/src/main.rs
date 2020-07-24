@@ -33,7 +33,7 @@ fn read_input()  -> io::Result<Vec<u64>> {
 fn main() {
 	println!("hello world");
 	let a = read_input().unwrap();
-34erwewr    let mut input: Vec<BigUint> = Vec::new();
+    let mut input: Vec<BigUint> = Vec::new();
     for ai in a.into_iter(){
     	input.push(ai.into_biguint().unwrap());
     }
