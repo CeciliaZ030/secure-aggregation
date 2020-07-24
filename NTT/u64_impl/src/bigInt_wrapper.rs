@@ -15,20 +15,17 @@ pub fn transform(a: &Vec<BigUint>) -> Vec<BigUint> {
 
 	let w = r;
 	println!("primitive root: {:?}, p=nL+1---n: {},p: {}, omega: {}", w, k, P, w);
-	let mut w_matrix: Vec<Vec<BigUint>> = Vec::new();
+	let mut w_matrix: Vec<BigUint> = Vec::new();
 	for i in 0..L {
-		let mut row: Vec<BigUint> = Vec::new();
-		for j in 0..L {
-			row.push(w.modpow(&(i * j).into_biguint().unwrap(), &P));
-		}
-		w_matrix.push(row);	
+		//row.push(w.modpow(&(i * j).into_biguint().unwrap(), &P));
+		w_matrix.push(w.modpow(&(i).into_biguint().unwrap(), &P));	
 	}
 
 	DFT(a, w_matrix, P)
 
 }
 
-fn DFT(a: &Vec<BigUint>, w_matrix: Vec<Vec<BigUint>>, p: BigUint) -> Vec<BigUint> {
+fn DFT(a: &Vec<BigUint>, w_matrix: Vec<BigUint>, p: BigUint) -> Vec<BigUint> {
 	
 	let L = a.len();
 	let L_bitNum = ((L as f64).log2().trunc() as u32);
@@ -53,7 +50,7 @@ fn DFT(a: &Vec<BigUint>, w_matrix: Vec<Vec<BigUint>>, p: BigUint) -> Vec<BigUint
 		while i< L {
 			let mut j = 0;
 			while j < m/2 {
-				let t = &w_matrix[1][j*(L/m as usize)] * &b[i + j + m/2 ] % &p;
+				let t = &w_matrix[j*(L/m as usize)] * &b[i + j + m/2 ] % &p;
 				let u = &b[i + j] % &p;
 				
 				b[i + j] = (&u + &t) % &p;
