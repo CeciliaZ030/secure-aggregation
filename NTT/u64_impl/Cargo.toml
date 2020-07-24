@@ -1,5 +1,5 @@
 [package]
-name = "u64-impl"
+name = "u64_impl"
 version = "0.1.0"
 authors = ["CeciliaZ030 <CeciliaZ030@users.noreply.github.com>"]
 edition = "2018"
@@ -7,3 +7,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+num-bigint-dig = "0.6.0"
+
+[dependencies.num-traits]
+version = "0.2.4"
+default-features = false
