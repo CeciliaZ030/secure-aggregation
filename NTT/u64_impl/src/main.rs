@@ -39,6 +39,8 @@ fn main() {
     }
 
     let b = bigInt_wrapper::transform(&input);
-    println!("傻逼 {:?}", b);
-    println!("hello?");
+    println!("{:?}", b);
+    println!("\n\n\n\n");
+    let a = bigInt_wrapper::inverse(&b);
+    println!("{:?}", a);
 }
