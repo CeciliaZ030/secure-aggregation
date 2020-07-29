@@ -19,27 +19,27 @@ pub fn transform(a: &Vec<BigUint>, P: &BigUint, r: &BigUint) -> Vec<BigUint> {
 	let w = r;
 	let mut w_matrix: Vec<BigUint> = Vec::new();
 	for i in 0..L {
-		w_matrix.push(w.modpow(&(i).into_biguint().unwrap(), &P));	
+		w_matrix.push(w.modpow(&(i).into_biguint().unwrap(), P));	
 	}
 
-	DFT(a, &w_matrix, &P)
+	DFT(a, &w_matrix, P)
 
 }
 
 pub fn inverse(b: &Vec<BigUint>, P: &BigUint, r: &BigUint) -> Vec<BigUint> {
 
 	let L = b.len();
-	let w = r.modpow(&(&P - 2u32), &P);
+	let w = r.modpow(&(P - 2u32), P);
 	let mut w_matrix: Vec<BigUint> = Vec::new();
 	for i in 0..L {
-		w_matrix.push(w.modpow(&(i).into_biguint().unwrap(), &P));
+		w_matrix.push(w.modpow(&(i).into_biguint().unwrap(), P));
 	}
 
-	let mut a = DFT(b, w_matrix, &P);
+	let mut a = DFT(b, &w_matrix, P);
 
-	let L_inverse = L.into_biguint().unwrap().modpow(&(&P - 2u32), &P);
+	let L_inverse = L.into_biguint().unwrap().modpow(&(P - 2u32), P);
 	for i in 0..L {
-		a[i] = &a[i] * &L_inverse % &P
+		a[i] = &a[i] * &L_inverse % P
 	}
 
 	a
@@ -73,7 +73,7 @@ fn DFT(a: &Vec<BigUint>, w_matrix: &Vec<BigUint>, p: &BigUint) -> Vec<BigUint> {
 				let u = &b[i + j] % p;
 				
 				b[i + j] = (&u + &t) % p;
-				
+
 				if &u <= &t {
 					b[i + j + m/2] = ((p + &u) - &t) % p;
 				} else {

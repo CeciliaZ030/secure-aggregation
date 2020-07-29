@@ -79,7 +79,7 @@ pub fn read_input(p : &str)  -> io::Result<Vec<u64>> {
 fn main() {
 
 	println!("hello world");
-	let a = read_input("sample1").unwrap();
+	let arr = read_input("sample1").unwrap();
     let mut X: Vec<BigUint> = Vec::new();
     let prime = arr[0].into_biguint().unwrap();
     let root = arr[1].into_biguint().unwrap();
