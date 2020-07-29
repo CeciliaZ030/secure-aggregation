@@ -70,6 +70,7 @@ pub fn transform(a: &Vec<u128>) -> Vec<u128> {
 		for j in 0..L {
 			println!("{:?}, {}",i ,j);
 			row.push(w.pow((i*j) as u32) % P);
+			row.push(w % P);
 		}
 		w_matrix.push(row);	
 	}
