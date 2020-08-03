@@ -1,24 +1,21 @@
-extern crate num_bigint_dig;
-use num_bigint_dig::BigUint;
-use num_bigint_dig::IntoBigUint;
-use core::ops::*;
+use u64_impl::ModPow;
 use num_traits::*;
 
-pub fn bench_modpow(a: &Vec<BigUint>, P: &BigUint, r: &BigUint) -> Vec<BigUint>{
+pub fn bench_modpow(a: &Vec<u128>, P: &u128, r: &u128) -> Vec<u128>{
 	let L = a.len();
-	let mut w_matrix: Vec<BigUint> = Vec::new();
+	let mut w_matrix: Vec<u128> = Vec::new();
 	for i in 0..L {
-		w_matrix.push(r.modpow(&(i).into_biguint().unwrap(), P));	
+		w_matrix.push(r.modpow(&(i as u128), P));	
 	}
 	w_matrix
 }
 
 
-pub fn bench_out_of_place_bitreverse(a: &Vec<BigUint>) {
+pub fn bench_out_of_place_bitreverse(a: &Vec<u128>) {
 	let L = a.len();
 	let L_bitNum = ((L as f64).log2().trunc() as u32);
 
-	let mut b = Vec::<BigUint>::new();
+	let mut b = Vec::<u128>::new();
 	for i in 0..L {
         let mut i_rev = 0;
         for j in 0..L_bitNum {
@@ -30,7 +27,7 @@ pub fn bench_out_of_place_bitreverse(a: &Vec<BigUint>) {
 	}
 }
 
-pub fn bench_inplace_bitreverse(a: &mut Vec<BigUint>) {
+pub fn bench_inplace_bitreverse(a: &mut Vec<u128>) {
 	let L = a.len();
     let mut j = 0;
     for i in 0..L {
@@ -46,7 +43,7 @@ pub fn bench_inplace_bitreverse(a: &mut Vec<BigUint>) {
     }
 }
 
-pub fn bench_inplace_DFT(b: &mut Vec<BigUint>, w_matrix: &Vec<BigUint>, p: &BigUint) {
+pub fn bench_inplace_DFT(b: &mut Vec<u128>, w_matrix: &Vec<u128>, p: &u128) {
 
 	let L = b.len();
 	let L_bitNum = ((L as f64).log2().trunc() as u32);
@@ -76,7 +73,7 @@ pub fn bench_inplace_DFT(b: &mut Vec<BigUint>, w_matrix: &Vec<BigUint>, p: &BigU
 	}
 }
 
-pub fn bench_inplace_DFT_different_loop(b: &mut Vec<BigUint>, w_matrix: &Vec<BigUint>, p: &BigUint) {
+pub fn bench_inplace_DFT_different_loop(b: &mut Vec<u128>, w_matrix: &Vec<u128>, p: &u128) {
 
 	let n = b.len();
 
@@ -106,23 +103,17 @@ pub fn bench_inplace_DFT_different_loop(b: &mut Vec<BigUint>, w_matrix: &Vec<Big
     }
 }
 
-pub fn bench_vector_mul_forloop(a: &mut Vec<BigUint>, P: &BigUint) {
+pub fn bench_vector_mul_forloop(a: &mut Vec<u128>, P: &u128) {
 	let L = a.len();
-	let L_inverse = L.into_biguint().unwrap().modpow(&(P - 2u32), P);
+	let L_inverse = (L as u128).modpow(&(P - 2u128), P);
 	for i in 0..L {
 		a[i] = &a[i] * &L_inverse % P;
 	}
 }
 
-pub fn bench_vector_mul_iter(a: &mut Vec<BigUint>, P: &BigUint) {
+pub fn bench_vector_mul_iter(a: &mut Vec<u128>, P: &u128) {
 	let L = a.len();
-	let L_inverse = L.into_biguint().unwrap().modpow(&(P - 2u32), P);
+	let L_inverse = (L as u128).modpow(&(P - 2u128), P);
 	a.iter_mut().for_each(|ai| *ai = ai.clone() * &L_inverse % P)
 }
-
-
-
-
-
-
 

@@ -2,11 +2,12 @@ use num_bigint_dig::BigUint;
 use num_bigint_dig::IntoBigUint;
 use std::io::{self, BufReader, BufRead};
 use std::fs::File;
+use std::path::Path;
 
 pub mod U128;
 pub mod bigUint;
 
-pub fn read_input_to_BigUint(p : &str)  -> io::Result<Vec<BigUint>> {
+pub fn read_input_to_BigUint(p : &Path)  -> io::Result<Vec<BigUint>> {
     let f = File::open(p)?;
     let f = BufReader::new(f);
 
@@ -21,7 +22,22 @@ pub fn read_input_to_BigUint(p : &str)  -> io::Result<Vec<BigUint>> {
     Ok(v)
 }
 
-trait ModPow<T> {
+pub fn read_input_to_u128(p : &Path)  -> io::Result<Vec<u128>> {
+    let f = File::open(p)?;
+    let f = BufReader::new(f);
+
+    let mut v: Vec<u128> = Vec::new();
+
+    for line in f.lines() {
+        for i in line.unwrap().split(" "){
+            let temp = i.trim().parse::<u128>().unwrap();
+            v.push(temp);
+        }
+    }
+    Ok(v)
+}
+
+pub trait ModPow<T> {
     fn modpow(&self, exponent: &T, modulus: &T) -> T;
 }
 
@@ -44,7 +60,7 @@ impl ModPow<u128> for u128 {
             }
             exp >>= 1;
             base = base * base % modulus;
-            println!("exp {:?}, res {:?}, base {:?}", exp, res, base);
+            //println!("exp {:?}, res {:?}, base {:?}", exp, res, base);
         }
         return res
     }

@@ -70,7 +70,7 @@ fn DFT(a: &mut Vec<u128>, w_matrix: &Vec<u128>, p: &u128){
 
     //Cooley-Tukey DFT
 	for s in 1..(L_bitNum+1) as usize {
-		let m= pow(2, s as usize);
+		let m = pow(2, s as usize);
 		let mut i =0 as usize;
 		while i < L {
 			let mut j = 0;
