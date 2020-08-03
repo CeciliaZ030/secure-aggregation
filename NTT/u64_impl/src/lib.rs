@@ -1,78 +1,51 @@
-// extern crate num_bigint_dig;
+use num_bigint_dig::BigUint;
+use num_bigint_dig::IntoBigUint;
+use std::io::{self, BufReader, BufRead};
+use std::fs::File;
 
-// use std::io::{self, BufReader, BufRead};
-// use std::fs::File;
-// use rand::thread_rng;
-// use num_bigint_dig::BigUint;
-// use num_bigint_dig::IntoBigUint;
+pub mod U128;
+pub mod bigUint;
 
-pub mod U64;
-pub mod bigInt_wrapper;
+pub fn read_input_to_BigUint(p : &str)  -> io::Result<Vec<BigUint>> {
+    let f = File::open(p)?;
+    let f = BufReader::new(f);
 
-// extern crate test;
-// use test::Bencher;
+    let mut v: Vec<BigUint> = Vec::new();
 
-// pub fn add_two(a: i32) -> i32 {
-//     a + 2
-// }
+    for line in f.lines() {
+        for i in line.unwrap().split(" "){
+            let temp = i.trim().parse::<u64>().unwrap();
+            v.push(temp.into_biguint().unwrap());
+        }
+    }
+    Ok(v)
+}
 
+trait ModPow<T> {
+    fn modpow(&self, exponent: &T, modulus: &T) -> T;
+}
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use test::Bencher;
+impl ModPow<u128> for u128 {
+    /// Panics if the modulus is zero.
+    fn modpow(&self, exponent: &Self, modulus: &Self) -> Self {
 
-//     #[test]
-//     fn it_works() {
-//         assert_eq!(4, add_two(2));
-//     }
+        assert!(*modulus != 0u128, "divide by zero!");
+        if exponent == &0u128 {
+            return 1
+        }
 
-//     #[bench]
-//     fn bench_add_two(b: &mut Bencher) {
-//         b.iter(|| add_two(2));
-//     }
+        let mut base = self % modulus;
+        let mut exp = exponent.clone();
+        let mut res = 1;
 
-//     #[bench]
-//     fn bench_ntt(b: &mut Bencher) {
-
-//         b.iter(||{
-// 	        let mut input = thread_rng();
-// 		    s : u32 = rng.gen_range(0, 1);
-// 		    let mut arr = match s {
-// 				0 => read_input(&"sample1.txt"),
-// 				1 => read_input(&"sample2.txt"),
-// 				_ => Error
-// 			}.unwrap();
-
-// 			let mut X: Vec<BigUint> = Vec::new();
-// 			let prime = arr[0].into_biguint().unwrap();
-// 			let root = arr[1].into_biguint().unwrap();
-// 		    for i in 2..arr.len() {
-// 		    	X.push(arr[i].into_biguint().unwrap());
-// 		    }
-//         	bigInt_wrapper::transform(&X);
-//         });
-//     }
-
-// }
-
-
-// pub fn read_input(p : &str)  -> io::Result<Vec<u64>> {
-//     let f = File::open(p)?; //may use path
-//     let f = BufReader::new(f);
-
-//     let mut v: Vec<u64> = Vec::new();
-
-//     for line in f.lines() {
-//         println!("hello world");
-//         //First two are prime and root of unity
-//         for i in line.unwrap().split(","){
-//             v.push(i.trim().parse::<u64>().unwrap());
-//         }
-        
-//     }
-//     println!("Input prime field p ={:?}", v[0]);
-
-//     Ok(v)
-
-// }
+        while exp > 0 {
+            if exp % 2u128 == 1 {
+                res = res * base % modulus;
+            }
+            exp >>= 1;
+            base = base * base % modulus;
+            println!("exp {:?}, res {:?}, base {:?}", exp, res, base);
+        }
+        return res
+    }
+}

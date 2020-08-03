@@ -1,0 +1,115 @@
+     Running /Users/ceciliazhang/Projects/Rust/secure-aggregation/NTT/u64_impl/target/release/deps/benchmark-6de7155344790353
+Gnuplot not found, using plotters backend
+NTT component/[ Modpow 1 ]                                                                             
+                        time:   [1.9850 ms 1.9951 ms 2.0075 ms]
+                        change: [+0.1839% +0.8084% +1.4791%] (p = 0.01 < 0.10)
+                        Change within noise threshold.
+Found 9 outliers among 100 measurements (9.00%)
+  4 (4.00%) high mild
+  5 (5.00%) high severe
+NTT component/[ Modpow 2 ]                                                                             
+                        time:   [1.9786 ms 1.9825 ms 1.9878 ms]
+                        change: [-1.4522% -0.5250% +0.3237%] (p = 0.26 > 0.10)
+                        No change in performance detected.
+Found 9 outliers among 100 measurements (9.00%)
+  5 (5.00%) high mild
+  4 (4.00%) high severe
+NTT component/[ Out of Place Bitreverse 1 ]                                                                             
+                        time:   [13.078 us 13.175 us 13.299 us]
+                        change: [-11.635% -9.9266% -8.3485%] (p = 0.00 < 0.10)
+                        Performance has improved.
+Found 7 outliers among 100 measurements (7.00%)
+  2 (2.00%) high mild
+  5 (5.00%) high severe
+NTT component/[ Out of Place Bitreverse 2 ]                                                                             
+                        time:   [13.002 us 13.050 us 13.100 us]
+                        change: [-8.9803% -7.8491% -6.8170%] (p = 0.00 < 0.10)
+                        Performance has improved.
+Found 4 outliers among 100 measurements (4.00%)
+  2 (2.00%) low mild
+  1 (1.00%) high mild
+  1 (1.00%) high severe
+NTT component/[ Inplace Bitreverse 1 ]                                                                             
+                        time:   [1.8349 us 1.8417 us 1.8508 us]
+                        change: [-0.6131% +0.0668% +0.6999%] (p = 0.84 > 0.10)
+                        No change in performance detected.
+Found 8 outliers among 100 measurements (8.00%)
+  2 (2.00%) high mild
+  6 (6.00%) high severe
+NTT component/[ Inplace Bitreverse 2 ]                                                                             
+                        time:   [1.8331 us 1.8351 us 1.8371 us]
+                        change: [-4.0105% -2.9458% -2.0059%] (p = 0.00 < 0.10)
+                        Performance has improved.
+Found 6 outliers among 100 measurements (6.00%)
+  2 (2.00%) high mild
+  4 (4.00%) high severe
+Benchmarking NTT component/[ Inplace DFT 1 ]: Warming up for 3.0000 s
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 5.3s, enable flat sampling, or reduce sample count to 60.
+NTT component/[ Inplace DFT 1 ]                                                                             
+                        time:   [1.0421 ms 1.0434 ms 1.0454 ms]
+                        change: [-4.6963% -4.0994% -3.4533%] (p = 0.00 < 0.10)
+                        Performance has improved.
+Found 12 outliers among 100 measurements (12.00%)
+  3 (3.00%) low severe
+  2 (2.00%) low mild
+  1 (1.00%) high mild
+  6 (6.00%) high severe
+Benchmarking NTT component/[ Inplace DFT 2 ]: Warming up for 3.0000 s
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 5.4s, enable flat sampling, or reduce sample count to 60.
+NTT component/[ Inplace DFT 2 ]                                                                             
+                        time:   [1.0477 ms 1.0495 ms 1.0519 ms]
+                        change: [-1.6896% -0.9964% -0.3429%] (p = 0.00 < 0.10)
+                        Change within noise threshold.
+Found 9 outliers among 100 measurements (9.00%)
+  1 (1.00%) low severe
+  2 (2.00%) low mild
+  1 (1.00%) high mild
+  5 (5.00%) high severe
+Benchmarking NTT component/[ Inplace DFT Different Loop 1 ]: Warming up for 3.0000 s
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 5.6s, enable flat sampling, or reduce sample count to 60.
+NTT component/[ Inplace DFT Different Loop 1 ]                                                                             
+                        time:   [1.0762 ms 1.0780 ms 1.0809 ms]
+Found 11 outliers among 100 measurements (11.00%)
+  1 (1.00%) low severe
+  1 (1.00%) low mild
+  6 (6.00%) high mild
+  3 (3.00%) high severe
+Benchmarking NTT component/[ Inplace DFT Different Loop 2 ]: Warming up for 3.0000 s
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 5.6s, enable flat sampling, or reduce sample count to 60.
+NTT component/[ Inplace DFT Different Loop 2 ]                                                                             
+                        time:   [1.0797 ms 1.0821 ms 1.0855 ms]
+Found 10 outliers among 100 measurements (10.00%)
+  6 (6.00%) high mild
+  4 (4.00%) high severe
+Benchmarking NTT component/[ Vector Multiplication with Forloop 1 ]: Collecting 100 samples in estimated 5.2245 s (35k iterations                                                                                                                                 NTT component/[ Vector Multiplication with Forloop 1 ]                        
+                        time:   [146.18 us 146.60 us 147.18 us]
+                        change: [-4.5026% -3.6132% -2.7374%] (p = 0.00 < 0.10)
+                        Performance has improved.
+Found 17 outliers among 100 measurements (17.00%)
+  3 (3.00%) low mild
+  3 (3.00%) high mild
+  11 (11.00%) high severe
+Benchmarking NTT component/[ Vector Multiplication with Forloop 2 ]: Collecting 100 samples in estimated 5.2224 s (35k iterations                                                                                                                                 NTT component/[ Vector Multiplication with Forloop 2 ]                        
+                        time:   [145.99 us 146.12 us 146.29 us]
+                        change: [-6.3688% -5.1747% -4.0640%] (p = 0.00 < 0.10)
+                        Performance has improved.
+Found 12 outliers among 100 measurements (12.00%)
+  4 (4.00%) low mild
+  3 (3.00%) high mild
+  5 (5.00%) high severe
+Benchmarking NTT component/[ Vector Multiplication with Iterator 1 ]: Collecting 100 samples in estimated 5.4445 s (35k iteration                                                                                                                                 NTT component/[ Vector Multiplication with Iterator 1 ]                        
+                        time:   [152.33 us 152.92 us 154.08 us]
+                        change: [-7.1959% -5.9084% -4.6781%] (p = 0.00 < 0.10)
+                        Performance has improved.
+Found 9 outliers among 100 measurements (9.00%)
+  1 (1.00%) low severe
+  1 (1.00%) low mild
+  1 (1.00%) high mild
+  6 (6.00%) high severe
+Benchmarking NTT component/[ Vector Multiplication with Iterator 2 ]: Collecting 100 samples in estimated 5.4440 s (35k iteration                                                                                                                                 NTT component/[ Vector Multiplication with Iterator 2 ]                        
+                        time:   [152.36 us 152.53 us 152.75 us]
+                        change: [-0.0946% +0.4203% +0.9942%] (p = 0.12 > 0.10)
+                        No change in performance detected.
+Found 7 outliers among 100 measurements (7.00%)
+  1 (1.00%) high mild
+  6 (6.00%) high severe
