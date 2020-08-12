@@ -1,5 +1,5 @@
 [package]
-name = "u64_impl"
+name = "NTT"
 version = "0.1.0"
 authors = ["CeciliaZ030 <CeciliaZ030@users.noreply.github.com>"]
 edition = "2018"
@@ -14,7 +14,7 @@ version = "0.2.4"
 default-features = false
 
 [dependencies]
-rand = "0.5"
+rand = "0.7.3"
 
 [dev-dependencies]
 criterion = "0.3"

@@ -1,6 +1,6 @@
 use num_bigint_dig::BigUint;
 use num_bigint_dig::IntoBigUint;
-use u64_impl::*;
+use NTT::*;
 use std::path::Path;
 
 

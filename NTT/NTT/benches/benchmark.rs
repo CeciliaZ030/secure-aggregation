@@ -2,11 +2,13 @@ use criterion::*;
 use num_bigint_dig::BigUint;
 use num_bigint_dig::IntoBigUint;
 use std::path::Path;
+use rand::{thread_rng, Rng};
 
-use u64_impl::*;
+use NTT::*;
 
 mod benchBigUint;
 mod benchU128;
+mod benchRadix3;
 
 
 
@@ -120,112 +122,47 @@ fn bench_ntt_biguint(c: &mut Criterion) {
     });
 }
 
-fn bench_ntt_u128(c: &mut Criterion) {
+fn bench_radix3(c: &mut Criterion) {
 
-    let path1 = Path::new("sample1.txt");
-    let path2 = Path::new("sample2.txt");
+    let mut group = c.benchmark_group("Radix 3");
+    /*
+    use this prime : 4610415792919412737
 
-    let P1 = 4611686018326724609u128;
-    let R1 = 1468970003788274264u128;
-    let X1 = read_input_to_u128(&path1).unwrap();
+    512th root ot unity: 1266473570726112470
 
-    let P2 = 4611686018326724609u128;
-    let R2 = 3125141995714774395u128;
-    let X2 = read_input_to_u128(&path2).unwrap();
+    729th root of unity: 2230453091198852918
+        Sample
+        [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        [45, 404, 407, 266, 377, 47, 158, 17, 20]
+    */
 
-    let mut group = c.benchmark_group("NTT U128");
+    let P = 4610415792919412737u128;
+    let r = 2230453091198852918u128;
 
+    let mut rng = thread_rng();
+    let mut a: Vec<u128> = Vec::new();
+    for i in 0..729 {
+        a.push(rng.gen_range(0, P));
+    }
 
-    group.bench_function("[ Modpow 1 ]", |bench| {
+    let L = a.len();
+
+    let mut w_matrix: Vec<u128> = Vec::new();
+    for i in 0..L/3*2+1 {
+        w_matrix.push(r.modpow(&(i as u128), &P));  
+    }
+
+    group.bench_function("[ Inplace Bitreverse]", |bench| {
+        let mut _X = a.clone();
         bench.iter(|| {
-            benchU128::bench_modpow(black_box(&X1), black_box(&P1), black_box(&R1));
-        })
-    });
-        group.bench_function("[ Modpow 2 ]", |bench| {
-        bench.iter(|| {
-            benchU128::bench_modpow(black_box(&X2), black_box(&P2), black_box(&R2));
-        })
-    });
-
-
-    group.bench_function("[ Out of Place Bitreverse 1 ]", |bench| {
-        bench.iter(|| {
-            benchU128::bench_out_of_place_bitreverse(black_box(&X1));
-        })
-    });
-    group.bench_function("[ Out of Place Bitreverse 2 ]", |bench| {
-        bench.iter(|| {
-            benchU128::bench_out_of_place_bitreverse(black_box(&X2));
-        })
-    });
-
-    group.bench_function("[ Inplace Bitreverse 1 ]", |bench| {
-        let mut _X = X1.clone();
-        bench.iter(|| {
-            benchU128::bench_inplace_bitreverse(black_box(&mut _X));
-        })
-    });
-    group.bench_function("[ Inplace Bitreverse 2 ]", |bench| {
-        let mut _X = X2.clone();
-        bench.iter(|| {
-            benchU128::bench_inplace_bitreverse(black_box(&mut _X));
+            benchRadix3::bench_inplace_bitreverse(black_box(&mut _X));
         })
     });
 
-    group.bench_function("[ Inplace DFT 1 ]", |bench| {
-        let mut _X = X1.clone(); 
-        let w_matrix = benchU128::bench_modpow(&X1, &P1, &R1);
+    group.bench_function("[ Inplace DFT]", |bench| {
+        let mut _X = a.clone(); 
         bench.iter(|| {
-            benchU128::bench_inplace_DFT(black_box(&mut _X), black_box(&w_matrix), black_box(&P1));
-        })
-    });
-    group.bench_function("[ Inplace DFT 2 ]", |bench| {
-        let mut _X = X2.clone();
-        let w_matrix = benchU128::bench_modpow(&X2, &P2, &R2);
-        bench.iter(|| {
-            benchU128::bench_inplace_DFT(black_box(&mut _X), black_box(&w_matrix), black_box(&P2));
-        })
-    });
-
-    group.bench_function("[ Inplace DFT Different Loop 1 ]", |bench| {
-    let mut _X = X1.clone(); 
-    let w_matrix = benchU128::bench_modpow(&X1, &P1, &R1);
-    bench.iter(|| {
-        benchU128::bench_inplace_DFT_different_loop(black_box(&mut _X), black_box(&w_matrix), black_box(&P1));
-    })
-    });
-    group.bench_function("[ Inplace DFT Different Loop 2 ]", |bench| {
-        let mut _X = X2.clone();
-        let w_matrix = benchU128::bench_modpow(&X2, &P2, &R2);
-        bench.iter(|| {
-            benchU128::bench_inplace_DFT_different_loop(black_box(&mut _X), black_box(&w_matrix), black_box(&P2));
-        })
-    });
-
-
-    group.bench_function("[ Vector Multiplication with Forloop 1 ]", |bench| {
-        let mut _X = X1.clone();
-        bench.iter(|| {
-            benchU128::bench_vector_mul_forloop(black_box(&mut _X), black_box(&P1));
-        })
-    });
-    group.bench_function("[ Vector Multiplication with Forloop 2 ]", |bench| {
-        let mut _X = X2.clone();
-        bench.iter(|| {
-            benchU128::bench_vector_mul_forloop(black_box(&mut _X), black_box(&P2));
-        })
-    });
-
-    group.bench_function("[ Vector Multiplication with Iterator 1 ]", |bench| {
-        let mut _X = X1.clone();
-        bench.iter(|| {
-            benchU128::bench_vector_mul_iter(black_box(&mut _X), black_box(&P1));
-        })
-    });
-    group.bench_function("[ Vector Multiplication with Iterator 2 ]", |bench| {
-        let mut _X = X2.clone();
-        bench.iter(|| {
-            benchU128::bench_vector_mul_iter(black_box(&mut _X), black_box(&P2));
+            benchRadix3::bench_inplace_DFT(black_box(&mut _X), black_box(&w_matrix), black_box(&P));
         })
     });
 }
@@ -234,7 +171,7 @@ criterion_group!{
     name = benches;
     // This can be any expression that returns a `Criterion` object.
     config = Criterion::default().significance_level(0.1).sample_size(100);
-    targets = bench_ntt_u128
+    targets = bench_radix3
 }
 criterion_main!(benches);
 

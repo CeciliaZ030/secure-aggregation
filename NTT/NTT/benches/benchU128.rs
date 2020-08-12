@@ -1,4 +1,4 @@
-use u64_impl::ModPow;
+use NTT::ModPow;
 use num_traits::*;
 
 pub fn bench_modpow(a: &Vec<u128>, P: &u128, r: &u128) -> Vec<u128>{
