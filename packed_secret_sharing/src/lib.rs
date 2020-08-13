@@ -3,7 +3,7 @@ use std::fs::File;
 use std::path::Path;
 
 pub mod ntt;
-pub mod packed_ss;
+pub mod packed;
 
 /** I/O util **/
 

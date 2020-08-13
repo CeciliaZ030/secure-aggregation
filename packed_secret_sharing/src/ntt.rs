@@ -1,39 +1,40 @@
 use num_traits::*;
 use crate::ModPow;
+use crate::packed::*;
 
 //out-of-place transform
 //input reference and perform in-place DFT on copy of input
-pub fn transform2(mut a: Vec<u128>, P: &u128, r: &u128) -> Vec<u128> {
+pub fn transform2(mut a: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128> {
 	println!("radix2 transforming...{:?}", a.len());
-	let L = a.len();
 
-	//calculating omegas
-	let w = r;
-	let mut w_matrix: Vec<u128> = Vec::new();
-	for i in 0..L {
-		w_matrix.push(w.modpow(&(i as u128), P));	
-	}
+	bit_reverse2(&mut a);
+	DFT_radix2(&mut a, P, rootTable);
 
-	DFT(&mut a, &w_matrix, P);
 	a
 }
 
-pub fn transform3(mut a: Vec<u128>, P: &u128, r: &u128) -> Vec<u128> {
+pub fn transform3(mut a: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128> {
 	println!("radix3 transforming...{:?}", a.len());
 
-	DFT_radix3(&mut a, &P, &r);
+	bit_reverse3(&mut a);
+	DFT_radix3(&mut a, P, rootTable);
+
 	a
 }
 
-pub fn inverse3(mut b: Vec<u128>, P: &u128, r: &u128) -> Vec<u128> {
+pub fn inverse3(mut b: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128> {
 	println!("radix 3 inversing...{:?}", b.len());
 
-	//calculating omegas
+	//calculating inverse omegas
 	let L = b.len();
-	let w = r.modpow(&(P - 2u128), P);
+	let w = rootTable[1].modpow(&(P - 2u128), P);
+	let mut inverseTable: Vec<u128> = Vec::new();
+	for i in 0..L {
+		inverseTable.push(w.modpow(&(i as u128), P));
+	}
 
-	//clone input for in-place DFT
-	DFT_radix3(&mut b, &P, &w);
+	bit_reverse3(&mut b);
+	DFT_radix3(&mut b, P, &inverseTable);
 
 	// F^-1(Y) = nX
 	// Thus divide output by n or multiply n^-1
@@ -47,19 +48,20 @@ pub fn inverse3(mut b: Vec<u128>, P: &u128, r: &u128) -> Vec<u128> {
 }
 
 
-pub fn inverse2(mut b: Vec<u128>, P: &u128, r: &u128) -> Vec<u128> {
+pub fn inverse2(mut b: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128> {
 	println!("radix2 inversing...{:?}", b.len());
 	let L = b.len();
 
-	//calculating omegas
-	let w = r.modpow(&(P - 2u128), P);
-	let mut w_matrix: Vec<u128> = Vec::new();
+	//calculating inverse omegas
+	let w = rootTable[1].modpow(&(P - 2u128), P);
+	let mut inverseTable: Vec<u128> = Vec::new();
 	for i in 0..L {
-		w_matrix.push(w.modpow(&(i as u128), P));
+		inverseTable.push(w.modpow(&(i as u128), P));
 	}
 
 	//clone input for in-place DFT
-	DFT(&mut b, &w_matrix, P);
+	bit_reverse2(&mut b);
+	DFT_radix2(&mut b, P, &inverseTable);
 
 	// F^-1(Y) = nX
 	// Thus divide output by n or multiply n^-1
@@ -72,12 +74,63 @@ pub fn inverse2(mut b: Vec<u128>, P: &u128, r: &u128) -> Vec<u128> {
 }
 
 //in-place, use mutable reference
-fn DFT(a: &mut Vec<u128>, w_matrix: &Vec<u128>, p: &u128){
-	
+fn DFT_radix2(a: &mut Vec<u128>, P: &u128, rootTable: &Vec<u128>,){
 	let L = a.len();
 	let L_bitNum = (L as f64).log2().trunc() as u128;
 
-	//Bit reversed permutation
+    //Cooley-Tukey DFT
+	for s in 1..(L_bitNum+1) as usize {
+		let m = pow(2, s as usize);
+		let mut i =0 as usize;
+		while i < L {
+			let mut j = 0;
+			while j < m/2 {
+				let t = &rootTable[j*(L/m as usize)] * &a[i + j + m/2 ] % P;
+				let u = &a[i + j] % P;
+				a[i + j] = (&u + &t) % P;
+				if &u <= &t {
+					a[i + j + m/2] = ((P + &u) - &t) % P;
+				} else {
+					a[i + j + m/2] = (&u - &t) % P;
+				}
+				j+= 1;
+			}
+			i += m;
+		}
+	}
+}
+
+pub fn DFT_radix3(a: &mut Vec<u128>, P: &u128, rootTable: &Vec<u128>) {	
+	
+	let L = a.len();
+	let w = rootTable[L/3];
+	let w_sqr = rootTable[L/3*2];
+
+	let mut i = 1;
+	while i < L {
+		let jump = 3 * i;
+		let stride = L/jump;
+		for j in 0..i {
+			let mut pair = j;
+			while pair < L {
+				let (x, y, z) = (a[pair],
+								a[pair + i] * rootTable[j * stride] % P,
+								a[pair + 2 * i] * rootTable[2 * j * stride] %P);
+				a[pair] 	  	= (x + y + z) % P;
+				a[pair + i]   	= (x % P + w * y % P + w_sqr * z % P) % P;
+                a[pair + 2 * i] = (x % P + w_sqr * y % P + w * z % P) % P;
+				
+				pair += jump;
+			}
+		}
+		i = jump;
+	}
+}
+
+pub fn bit_reverse2(a: &mut Vec<u128>) {
+	let L = a.len();
+	let L_bitNum = (L as f64).log2().trunc() as u128;
+
     let mut j = 0;
     for i in 0..L {
         if j > i {
@@ -90,51 +143,17 @@ fn DFT(a: &mut Vec<u128>, w_matrix: &Vec<u128>, p: &u128){
         }
         j |= mask;
     }
-
-    //Cooley-Tukey DFT
-	for s in 1..(L_bitNum+1) as usize {
-		let m = pow(2, s as usize);
-		let mut i =0 as usize;
-		while i < L {
-			let mut j = 0;
-			while j < m/2 {
-				let t = &w_matrix[j*(L/m as usize)] * &a[i + j + m/2 ] % p;
-				let u = &a[i + j] % p;
-				a[i + j] = (&u + &t) % p;
-				if &u <= &t {
-					a[i + j + m/2] = ((p + &u) - &t) % p;
-				} else {
-					a[i + j + m/2] = (&u - &t) % p;
-				}
-				j+= 1;
-			}
-			i += m;
-		}
-	}
 }
 
-fn trigits_len(n: usize) -> usize {
-    let mut result = 1;
-    let mut value = 3;
-    while value < n + 1 {
-        result += 1;
-        value *= 3;
-    }
-    result
-}
-
-
-pub fn DFT_radix3(data: &mut Vec<u128>, P: &u128, r: &u128){
-    
+pub fn bit_reverse3 (a: &mut Vec<u128>) {
     //radix3 bit reverse
     let mut t = 0usize;
-    let L = data.len();
+    let L = a.len();
     let tri_L = trigits_len(L - 1);
     let mut trigits = vec![0; tri_L];
-
     for i in 0..L {
         if t > i {
-            data.swap(t, i);
+            a.swap(t, i);
         }
         for j in 0..tri_L {
             if trigits[j] < 2 {
@@ -145,44 +164,10 @@ pub fn DFT_radix3(data: &mut Vec<u128>, P: &u128, r: &u128){
                 trigits[j] = 0;
                 t -= 2 * 3usize.pow((tri_L-j-1)as u32);
             }
+
         }
-    }
-    println!("{:?}", data);
-
-    //radix3 DFT
-    let mut step = 1;
-    let w = r;
-    let tri_w = r.modpow(&((L/3) as u128), P);
-    let tri_w_sq = tri_w * tri_w % P;
-	println!("{:?}, {}",tri_w, tri_w_sq);
-
-    while step < L {
-        let jump = 3 * step;
-        let factor_stride = w.modpow(&((L/step/3) as u128), P);
-        println!("{} s {}", step, factor_stride);
-
-        let mut factor = 1;
-        for group in 0usize..step {
-            let factor_sq = factor * factor % P;
-            println!("	factor {:?}, {}", factor, factor_sq);
-
-            let mut pair = group;
-            while pair < data.len() {
-                let (x, y, z) = (data[pair],
-                                 data[pair + step] * factor % P,
-                                 data[pair + 2 * step] * factor_sq % P);
-
-                data[pair] = (x + y + z) % P;
-                data[pair + step] = (x % P + tri_w * y % P+ tri_w_sq * z % P) % P;
-                data[pair + 2 * step] = (x % P + tri_w_sq * y % P+ tri_w * z % P) % P;
-                pair += jump;
-            }
-            factor = factor * factor_stride % P;
-        }
-        step = jump;
     }
 }
-
 
 
 
