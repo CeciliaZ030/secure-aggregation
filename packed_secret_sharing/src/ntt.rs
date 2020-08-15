@@ -5,7 +5,7 @@ use crate::packed::*;
 //out-of-place transform
 //input reference and perform in-place DFT on copy of input
 pub fn transform2(mut a: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128> {
-	println!("radix2 transforming...{:?}", a.len());
+	//println!("radix2 transforming...{:?}", a.len());
 
 	bit_reverse2(&mut a);
 	DFT_radix2(&mut a, P, rootTable);
@@ -14,7 +14,7 @@ pub fn transform2(mut a: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128
 }
 
 pub fn transform3(mut a: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128> {
-	println!("radix3 transforming...{:?}", a.len());
+	//println!("radix3 transforming...{:?}", a.len());
 
 	bit_reverse3(&mut a);
 	DFT_radix3(&mut a, P, rootTable);
@@ -23,14 +23,14 @@ pub fn transform3(mut a: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128
 }
 
 pub fn inverse3(mut b: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128> {
-	println!("radix 3 inversing...{:?}", b.len());
+	//println!("radix 3 inversing...{:?}", b.len());
 
 	//calculating inverse omegas
 	let L = b.len();
 	let w = rootTable[1].modpow(&(P - 2u128), P);
-	let mut inverseTable: Vec<u128> = Vec::new();
+	let mut inverseTable = vec![0u128; L];
 	for i in 0..L {
-		inverseTable.push(w.modpow(&(i as u128), P));
+		inverseTable[i] = w.modpow(&(i as u128), P);
 	}
 
 	bit_reverse3(&mut b);
@@ -49,14 +49,14 @@ pub fn inverse3(mut b: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128> 
 
 
 pub fn inverse2(mut b: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128> {
-	println!("radix2 inversing...{:?}", b.len());
+	//println!("radix2 inversing...{:?}", b.len());
 	let L = b.len();
 
 	//calculating inverse omegas
 	let w = rootTable[1].modpow(&(P - 2u128), P);
-	let mut inverseTable: Vec<u128> = Vec::new();
+	let mut inverseTable = vec![0u128; L];
 	for i in 0..L {
-		inverseTable.push(w.modpow(&(i as u128), P));
+		inverseTable[i] = w.modpow(&(i as u128), P);
 	}
 
 	//clone input for in-place DFT
@@ -74,7 +74,7 @@ pub fn inverse2(mut b: Vec<u128>, P: &u128, rootTable: &Vec<u128>) -> Vec<u128> 
 }
 
 //in-place, use mutable reference
-fn DFT_radix2(a: &mut Vec<u128>, P: &u128, rootTable: &Vec<u128>,){
+pub fn DFT_radix2(a: &mut Vec<u128>, P: &u128, rootTable: &Vec<u128>,){
 	let L = a.len();
 	let L_bitNum = (L as f64).log2().trunc() as u128;
 

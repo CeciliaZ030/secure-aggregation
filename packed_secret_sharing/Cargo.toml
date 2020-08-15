@@ -8,6 +8,14 @@ edition = "2018"
 
 [dependencies]
 rand = "0.7.3"
+
 [dependencies.num-traits]
 version = "0.2.4"
 default-features = false
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "benchmark"
+harness = false

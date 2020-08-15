@@ -9,8 +9,8 @@ pub struct PackedSecretSharing {
 	prime: u128,
 	root2: u128,
 	root3: u128,
-	rootTable2: Vec<u128>,
-	rootTable3: Vec<u128>,
+	pub rootTable2: Vec<u128>,
+	pub rootTable3: Vec<u128>,
 
 	// degree of the sharing poly
 	degree: usize,
@@ -32,17 +32,16 @@ impl PackedSecretSharing {
   		assert!((degree + 1).is_power_of_two());
 
 		let L2 = degree + 1;
-		let mut rootTable2: Vec<u128> = Vec::new();
+		let mut rootTable2 = vec![0u128; L2];
 		for i in 0..L2 {
-			rootTable2.push(root2.modpow(&(i as u128), &prime));	
+			rootTable2[i] = root2.modpow(&(i as u128), &prime);	
 		}
 
   		let L3 = round_to_pow3(num_shares);
-  		let mut rootTable3: Vec<u128> = Vec::new();
+  		let mut rootTable3 = vec![0u128; L3];
 		for i in 0..L3 {
-			rootTable3.push(root3.modpow(&(i as u128), &prime));
+			rootTable3[i] = root3.modpow(&(i as u128), &prime);
 		}
-//		println!("rootTable3 {:?}", rootTable3[3]);
 
 		PackedSecretSharing {
 
@@ -102,7 +101,7 @@ impl PackedSecretSharing {
 
 		// use radix2_DFT to from the poly
 		let mut poly = ntt::inverse2(_secrets.clone(), &self.prime, &self.rootTable2);
-		println!("poly first coeff {:?}", poly[0]);
+		//println!("poly first coeff {:?}", poly[0]);
 
 
 		for i in L2 ..L3 {
@@ -111,7 +110,7 @@ impl PackedSecretSharing {
 
 		// share with radix2_DFT
 		let shares = ntt::transform3(poly, &self.prime, &self.rootTable3);
-		println!("len {:?}, first share {:?}", shares.len(), shares[0]);
+		//println!("len {:?}, first share {:?}", shares.len(), shares[0]);
 
 		shares
 	}
@@ -130,9 +129,9 @@ impl PackedSecretSharing {
 }
 
 /**		UTIL	**/
-fn lagrange_interpolation (points: &Vec<u128>, values: &Vec<u128>, roots: &Vec<u128>, P: &u128) -> Vec<u128> {
+pub fn lagrange_interpolation (points: &Vec<u128>, values: &Vec<u128>, roots: &Vec<u128>, P: &u128) -> Vec<u128> {
 	
-	println!("Lagrange Interpolation \nrecieved {:?} points, evaluating {} roots", points.len(), roots.len());
+	//println!("Lagrange Interpolation \nrecieved {:?} points, evaluating {} roots", points.len(), roots.len());
 	let L = points.len();
 
 	let mut denominators: Vec<u128> = Vec::new();
