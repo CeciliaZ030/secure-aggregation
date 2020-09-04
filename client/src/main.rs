@@ -16,7 +16,7 @@ fn main() {
     /* 		Handshake	 */
 
     client.send("Hello", 0).unwrap();
-    
+
 
     let Gx = client.recv_string(0).unwrap().unwrap();
     let Gy = client.recv_string(0).unwrap().unwrap();
@@ -25,5 +25,7 @@ fn main() {
     let P = client.recv_string(0).unwrap().unwrap();
 
     println!("{}, {}, {}, {}, {}", Gx, Gy, a, b, P);
+
+    sdfsdf
 
 }
