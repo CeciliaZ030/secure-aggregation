@@ -9,6 +9,7 @@ use NTT::*;
 mod benchBigUint;
 mod benchU128;
 mod benchRadix3;
+mod benchU64;
 
 
 
@@ -167,11 +168,38 @@ fn bench_radix3(c: &mut Criterion) {
     });
 }
 
+fn bench_u64(c: &mut Criterion) {
+    let mut group = c.benchmark_group("U64");
+
+    let path1 = Path::new("sample1.txt");
+
+    let P1_ = 4611686018326724609u64;
+    let R1_ = 1468970003788274264u64;
+    let X1_ = read_input_to_u64(&path1).unwrap();
+
+    let L = X1_.len();
+
+    //calculating omegas
+    let w = R1_;
+    let mut w_matrix: Vec<u64> = Vec::new();
+    for i in 0..L {
+
+        w_matrix.push(w.modpow(&(i as u64), &P1_));    
+    }
+
+    group.bench_function("[ Inplace DFT]", |bench| {
+        let mut _X = X1_.clone(); 
+        bench.iter(|| {
+            benchU64::bench_inplace_DFT(black_box(&mut _X), black_box(&w_matrix), black_box(&P1_));
+        })
+    });
+}
+
 criterion_group!{
     name = benches;
     // This can be any expression that returns a `Criterion` object.
     config = Criterion::default().significance_level(0.1).sample_size(100);
-    targets = bench_radix3
+    targets = bench_u64
 }
 criterion_main!(benches);
 

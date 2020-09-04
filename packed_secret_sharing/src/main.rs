@@ -33,7 +33,6 @@ fn main() {
     for i in 0..512 {
     	shares_point[i] = r3.modpow(&(i as u128), &p);
     }
-//    println!("shares_point3 {:?}", shares_point[3]);
 
     let mut shares_val = shares.clone();
     shares_val.split_off(512);

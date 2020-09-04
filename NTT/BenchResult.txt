@@ -133,4 +133,9 @@ Radix 3/[ Inplace DFT]  time:   [1.8277 ms 1.8500 ms 1.8759 ms]
 Found 5 outliers among 100 measurements (5.00%)
   2 (2.00%) high mild
   3 (3.00%) high severe
+  
+// ==============================================================================
 
+U64/[ Inplace DFT]      time:   [451.35 us 456.93 us 464.46 us]                               
+                        change: [+4.1049% +6.0837% +8.7383%] (p = 0.00 < 0.10)
+                        Performance has regressed.

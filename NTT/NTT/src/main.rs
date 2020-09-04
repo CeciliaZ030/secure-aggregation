@@ -27,9 +27,17 @@ fn main() {
     let R2_ = 3125141995714774395u128;
     let X2_ = read_input_to_u128(&path2).unwrap();
 
+    let P1_ = 4611686018326724609u64;
+    let R1_ = 1468970003788274264u64;
+    let X1_ = read_input_to_u64(&path1).unwrap();
+
+    let P2_ = 4611686018326724609u64;
+    let R2_ = 3125141995714774395u64;
+    let X2_ = read_input_to_u64(&path2).unwrap();
+
 	assert_eq!(bigUint::inverse(&bigUint::transform(&X1, &P1, &R1), &P1, &R1), X1);
 	assert_eq!(bigUint::inverse(&bigUint::transform(&X2, &P2, &R2), &P2, &R2), X2);
 
-	assert_eq!(U128::inverse(&U128::transform(&X1_, &P1_, &R1_), &P1_, &R1_), X1_);
-	assert_eq!(U128::inverse(&U128::transform(&X2_, &P2_, &R2_), &P2_, &R2_), X2_);
+	assert_eq!(U64::inverse(&U64::transform(&X1_, &P1_, &R1_), &P1_, &R1_), X1_);
+	assert_eq!(U64::inverse(&U64::transform(&X2_, &P2_, &R2_), &P2_, &R2_), X2_);
 }
