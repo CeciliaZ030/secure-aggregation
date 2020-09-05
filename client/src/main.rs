@@ -1,31 +1,24 @@
 //! Hello World client
+use zmq::SNDMORE;
 
 fn main() {
-    println!("Connecting to hello world server...\n");
 
     let context = zmq::Context::new();
-    let client = context.socket(zmq::REQ).unwrap();
+    let dealer = context.socket(zmq::DEALER).unwrap();
+
     let identity = "Alice";
     println!("Alice's name as_bytes {:?}", identity.as_bytes());
-    client.set_identity(identity.as_bytes());
+    dealer.set_identity(identity.as_bytes());
 
-    assert!(client.connect("tcp://localhost:8888").is_ok());
+    assert!(dealer.connect("tcp://localhost:6000").is_ok());
 
-    let mut msg = zmq::Message::new();
+    loop {
 
-    /* 		Handshake	 */
+        dealer.send("fetch", SNDMORE).unwrap();
+        dealer.send("645", 0).unwrap();
 
-    client.send("Hello", 0).unwrap();
-
-
-    let Gx = client.recv_string(0).unwrap().unwrap();
-    let Gy = client.recv_string(0).unwrap().unwrap();
-    let a = client.recv_string(0).unwrap().unwrap();
-    let b = client.recv_string(0).unwrap().unwrap();
-    let P = client.recv_string(0).unwrap().unwrap();
-
-    println!("{}, {}, {}, {}, {}", Gx, Gy, a, b, P);
-
-    sdfsdf
+        let chunk = dealer.recv_string(0).unwrap().unwrap();
+        println!("{:?} chunks received", chunk);
+    }
 
 }
