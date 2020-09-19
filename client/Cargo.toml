@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 zmq = "0.9"
+rug = "1.11.0"
