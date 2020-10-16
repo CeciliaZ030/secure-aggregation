@@ -6,5 +6,17 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
-zmq = "0.9"
+[dependencies.zmq]
+version = "0.9"
+
+#[dependencies.ecdsa]
+#version = "0.8.5"
+#features = ["verify", "dev"]
+
+[dependencies.p256]
+version = "0.5.2"
+features = ["digest","ecdsa"]
+
+[dependencies.signature]
+version = "1.2.2"
+
