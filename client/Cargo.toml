@@ -6,6 +6,19 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
-zmq = "0.9"
-rug = "1.11.0"
+[dependencies.zmq]
+version = "0.9"
+
+[dependencies.rand_core]
+version = "0.5.1"
+features = ["getrandom"]
+
+[dependencies.aes-gcm]
+version = "0.7.0"
+
+[dependencies.p256]
+version = "0.5.2"
+features = ["ecdh", "ecdsa"]
+
+[dependencies.packed_secret_sharing]
+path = "../packed_secret_sharing"
