@@ -1,3 +1,4 @@
+// To compile: g++ -g -O0 -lm -lgmp -lntl  parameters.cpp 
 // The main function receives two arguments argv[2]. 
 // argv[1] is the vector size
 // argv[2] is the number of the users
