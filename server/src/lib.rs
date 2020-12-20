@@ -1,12 +1,13 @@
 use std::collections::HashMap;
+use std::str;
+use std::thread;
+use std::thread::JoinHandle;
+use std::sync::*;
+
+use rand_core::OsRng;
+
 use zmq::Message;
 use zmq::SNDMORE;
-use std::str;
-
-// use ecdsa::{verify::VerifyKey, 
-//             Signature, signature::Signer,
-//             hazmap::VerifyPrimitive,
-//             };
 
 use signature::Signature as _;
 use p256::NistP256;
@@ -15,225 +16,392 @@ use p256::{
     ecdsa::{VerifyKey, signature::Verifier},
 };
 
-static MAX_USER: usize = 512;
+mod sockets;
+pub mod param;
+use sockets::*;
+use param::*;
 
 pub struct Server{
+	STATE: RwLock<usize>,
+	MAX: usize,
+	BLOCK: usize,
+	param: Param,
+	clientList: Mutex<Vec<Vec<u8>>>,
+	clientProfiles: Mutex<HashMap<Vec<u8>, Profile>>,
+}
 
-	pub reciever: zmq::Socket,
-	pub publisher: zmq::Socket,
-	
-	state: u32,
-	counter: u32,
 
-	client_list: Vec<Vec<u8>>,
-	client_data: HashMap<Vec<u8>, ClientData>,
+#[derive(Debug)]
+pub struct Profile {
+	veriKey: VerifyKey,
+	publicKey:  Vec<u8>,
+	hasShared: bool,
+
 }
 
 #[derive(Debug)]
-pub struct ClientData {
-	veriKey: Vec<u8>,
-	publicKey:  Vec<u8>,
+pub enum WorkerError {
+	MutexLockFail(usize),
+	ClientNotFound(usize),
+	ClientExisted(usize),
+	MaxClientExceed(usize),
+	DecryptionFail(usize),
+	UnexpectedFormat(usize),
+	UnknownState(usize),
+	WrongState(usize),
 }
 
+#[derive(Debug)]
+pub enum ServerError {
+	MissingClient(usize),
+	MutexLockFail(usize),
+	ThreadJoinFail(usize),
+	FailPublish(usize),
+	UnexpectedField(usize),
+}
 
 impl Server {
-	
-	pub fn new(context: zmq::Context, port1: &str, port2: &str) -> Server {
 
-		let reciever = context.socket(zmq::ROUTER).unwrap();
-		let publisher = context.socket(zmq::PUB).unwrap();
-
-//HWM
-//Buffer size
-    //sending & recving
-
-        publisher.set_sndhwm(1_100_000).expect("failed setting hwm");
-		let mut addr1: String = "tcp://*:".to_owned();
-		let mut addr2: String = "tcp://*:".to_owned();
-		addr1.push_str(port1);
-		addr2.push_str(port2);
-		assert!(reciever.bind(&addr1).is_ok());
-		assert!(publisher.bind(&addr2).is_ok());
-
+	pub fn new(maxClients: usize, blockLength: usize, param: Param) -> Server {
 		Server {
-
-			reciever: reciever,
-			publisher: publisher,
-
-			state: 0u32,
-			counter: 0u32,
-
-			client_list: Vec::<Vec<u8>>::new(),
-			client_data: HashMap::<Vec<u8>, ClientData>::new(),
+			STATE: RwLock::new(0usize),
+			MAX: maxClients,
+			BLOCK: blockLength,
+			param: param,
+			clientList: Mutex::new(Vec::new()),
+			clientProfiles: Mutex::new(HashMap::<Vec<u8>, Profile>::new()),
 		}
 	}
 
-	pub fn take_id(&self) -> Vec<u8> {
-		self.reciever.recv_bytes(0).unwrap()
+	pub fn server_task(&self, 
+		context: zmq::Context, port1: usize) -> Result<usize, ServerError>  {
+
+		let frontend = context.socket(zmq::ROUTER).unwrap();
+    	let backend = context.socket(zmq::DEALER).unwrap();
+
+		assert!(frontend
+			.bind(&format!("tcp://*:{:?}", port1))
+			.is_ok());
+		assert!(backend
+			.bind("inproc://backend")
+			.is_ok());
+
+		zmq::proxy(&frontend, &backend);
+		return Ok(0)
 	}
-	
-	pub fn recv_strings(&self) -> Vec<String> {
-		let mut res : Vec<String> = Vec::new();
-		let msg = self.reciever.recv_multipart(0).unwrap();
-        for m in msg {
-            res.push(String::from_utf8(m).unwrap());
-        }
-        println!("recv_strings {:?}", res);
-        res
+
+	pub fn state_task(&self, 
+		context: zmq::Context, port2: usize, threadReciever: mpsc::Receiver<usize>) -> Result<usize, ServerError> {
+
+    	println!("{}", &format!("tcp://*:{:?}", port2));
+		let publisher = context.socket(zmq::PUB).unwrap();
+        publisher.set_sndhwm(1_100_000).expect("failed setting hwm");
+		assert!(publisher
+			.bind(&format!("tcp://*:{:?}", port2))
+			.is_ok());
+
+		let mut recvCnt = 0;
+		loop {
+			match threadReciever.recv() {
+				Ok(cnt) => {
+					/* worker thread send stateNum 
+					when finish processing one client
+					*/
+					println!("Server mpsc recieved {:?}", cnt);
+					let mut stateGuard = self.STATE.write().unwrap();
+					if cnt == *stateGuard {
+						recvCnt += 1;
+					}
+					/* when finished client num exceed MAX
+					initiate state change
+					*/
+					if recvCnt >= self.MAX {
+
+						let mut profilesGuard;
+						let mut listGuard;
+						match self.clientProfiles.lock() {							// Mutex Obtained
+							Ok(guard) => profilesGuard = guard,
+							Err(_) => return Err(ServerError::MutexLockFail(0)),
+						}; 
+						match self.clientList.lock() {
+							Ok(guard) => listGuard = guard,
+							Err(_) => return Err(ServerError::MutexLockFail(0)),
+						};
+
+						println!("here ++++++++++++\n\n");
+						let mut res;
+						match *stateGuard {
+							0 => {
+								println!("sent");
+								res = publish(&publisher,
+											"Finished",
+											"HS")
+							},
+							1 => {
+								println!("sent keys");
+
+								res = publish_vecs(&publisher,
+											format_clientData(&(*profilesGuard), &(*listGuard), "publicKey").unwrap(),
+											"KE");
+								let sharingParams = self.param.calculate_sharing(self.MAX, self.BLOCK);
+								let mut spBytes = Vec::new();
+								for sp in sharingParams {
+									spBytes.push(sp.to_le_bytes().to_vec());
+								}
+								res = publish_vecs(&publisher,
+											spBytes,
+											"IS")
+							},
+							_ => res = Ok(0),
+						};
+						match res {
+							Ok(_) => {
+								*stateGuard += 1;
+								println!("Server: STATE change\n {:?}", *profilesGuard);
+								recvCnt = 0;
+							},
+							Err(_) => return Err(ServerError::FailPublish(0)),
+						};
+					}
+				},
+				Err(_) => {
+					continue;
+				},
+			}
+		}
+		return Ok(0)
 	}
-	pub fn recv_vecs(&self) -> Vec<Vec<u8>> {
-		let msg = self.reciever.recv_multipart(0).unwrap();
-		println!("recv_vecs {:?}", msg);
-		msg
+
+	pub fn worker_task(&self, worker: Worker)-> Result<usize, ServerError> {
+		loop {
+			let clientID = take_id(&worker.dealer);
+
+			println!("{} Taken {:?}", 
+				worker.ID, 
+				String::from_utf8(clientID.clone()).unwrap());
+
+			let msg = recv(&worker.dealer);
+			println!("	client message: {:?}", msg);
+
+			match *(self.STATE.read().unwrap()) {
+				0 => self.handshake(&worker, clientID, msg),
+				1 => self.key_exchange(&worker, clientID, msg),
+				2 => self.inpus_sharing(&worker, clientID, msg),
+				_ => Err(WorkerError::UnknownState(0))
+			};
+		}
+		return Ok(0)
 	}
-	//pub fn recv_multipart(&self, flags: i32) -> Result<Vec<Vec<u8>>>
-    //pub fn recv_string(&self, flags: i32) -> Result<result::Result<String, Vec<u8>>> 
-    //pub fn recv_bytes(&self, flags: i32) -> Result<Vec<u8>> 
-	//pub fn recv_into(&self, bytes: &mut [u8], flags: i32) -> Result<usize>
-	
-   
-    // Data can be Vec<Vec<u8>> or Vec<String> or Vec<str>
-    pub fn send_vec<I, T>(&self, data: I, identity: Vec<u8>) -> Result<&str, &str>
-    where 
-        I: IntoIterator<Item = T>,
-        T: Into<Message>,
-    {
-    	self.reciever.send(identity, SNDMORE);
-        let result = self.reciever.send_multipart(data, 0);
-        match result {
-            Ok(T) => Ok("Sent vector successfully."),
-            Err(Error) => Err("Failed sending vector."),
-        }
-    }
 
-    // Data can be Vec<u8> or &str
-    pub fn send<T>(&self, data: T, identity: &Vec<u8>) -> Result<&str, &str>
-    where
-        T: Into<Message>,
-    {
-    	self.reciever.send(identity, SNDMORE);
-        let result = self.reciever.send(data, 0);
-        match result {
-            Ok(T) => Ok("Sent message successfully."),
-            Err(Error) => Err("Failed sending message."),
-        }
-    }
+	fn handshake(&self, 
+		worker: &Worker, clientID: Vec<u8>, msg: RecvType) -> Result<usize, WorkerError> {
 
-    // Data can be Vec<Vec<u8>> or Vec<String> or Vec<str>
-    pub fn publish_vec(&self, data: Vec<Vec<u8>>, topic: &str){
-        for _ in 0..1_000 {
-            self.publisher.send(topic.as_bytes(), zmq::SNDMORE);
-            self.publisher
-                .send_multipart(&data, 0)
-                .expect("Failed publishing vector");
-        }
-        self.publisher.send("END", 0).expect("failed sending end");
-    
-    }
+		let mut profilesGuard;
+		let mut listGuard;
+		{
+			if *self.STATE.read().unwrap() != 0 {						// Correct State
+				send(&worker.dealer, 
+					"Error: Wrong state.", 
+					&clientID);
+				return Err(WorkerError::WrongState(0))
+			}
+			match self.clientProfiles.lock() {							// Mutex Obtained
+				Ok(guard) => profilesGuard = guard,
+				Err(guard) => return Err(WorkerError::MutexLockFail(0)),
+			};
+			match self.clientList.lock() {
+				Ok(guard) => listGuard = guard,
+				Err(guard) => return Err(WorkerError::MutexLockFail(0)),
+			};
+			if (*profilesGuard).contains_key(&clientID) || (*listGuard).contains(&clientID) {				
+																		// New Client
+				send(&worker.dealer, 
+					"Error: You already exists.", 
+					&clientID);
+				println!("Error: You already exists.");
+				return Err(WorkerError::ClientExisted(0))
+			}
+			if (*profilesGuard).len() == self.MAX {						// Under Limit
+	            send(&worker.dealer, 
+	            	"Error: Reached maximun client number.", 
+	            	&clientID);
+				return Err(WorkerError::MaxClientExceed(0))
+			}
+		}
 
-    pub fn publish<T>(&self, data: T) -> Result<&str, &str>
-    where
-        T: Into<Message>,
-    {
-        let result = self.publisher.send(data, 0);
-        match result {
-            Ok(T) => Ok("Published message successfully."),
-            Err(Error) => Err("Failed publishing message."),
-        }
-    }
+		/*-------------------- Checks Finished --------------------*/
 
-	pub fn workflow(&mut self, identity: Vec<u8>, msg: Vec<String>) -> Result<u32, &str>
-	{
+		let signKey = SigningKey::random(&mut OsRng);
+		let veriKey = VerifyKey::from(&signKey);
+		send(&worker.dealer,
+		 	SigningKey::to_bytes(&signKey).to_vec(), 
+		 	&clientID);
 
-		match msg[0].as_str() {
-    		"HS" => {
-            //Registration
-    			if self.client_list.contains(&identity){
-                    self.send("Error: existed client.", &identity);
-    				return Err("Handshake: client already exists.")
-    			}
-    			if self.client_list.len() == 3 {
-                    self.send("Error: reached maximun client number.", &identity);
-    				return Err("Handshake: reached maximun client number.")
-    			}
-    			self.client_list.push(identity.clone());
-		        self.send("Hello, I'm server.", &identity);
-    			
-    			// Recieve client's veryfying key
-    			assert_eq!(&self.take_id(), &identity);
-    			let veriKey = self.recv_vecs();
-    			let data = ClientData {
-    				veriKey: veriKey[0].clone(),
-    				publicKey: Vec::<u8>::new(),
-    			};
-    			self.client_data.insert(identity.clone(), data);
+		(*profilesGuard).insert(
+			clientID.clone(),
+			Profile{
+				veriKey: veriKey,
+				publicKey: Vec::new(),
+				hasShared: false,
+			}
+		);
+		(*listGuard).push(clientID.clone());
+		worker.threadSender.send(0);
 
-				self.send("OK", &identity);
+		println!("handshaked with {:?}", std::str::from_utf8(&clientID).unwrap());
+		return Ok(1)
+	}
 
-				Ok(1)
-    		},
-    		"KE" => {
-    			self.send("Send your publicKey", &identity);
-                assert_eq!(&self.take_id(), &identity);
-    			let authenticated_pk = self.recv_vecs();
+	fn key_exchange(&self, 
+		worker: &Worker, clientID: Vec<u8>, msg: RecvType) -> Result<usize, WorkerError> {
+		
+		let mut profile;
+		let mut profilesGuard;
+		{
+			if *self.STATE.read().unwrap() != 1 {						// Correct State
+				send(&worker.dealer, 
+					"Error: Wrong state.", 
+					&clientID);
+				return Err(WorkerError::WrongState(1))
+			}
+			match self.clientProfiles.lock() {							// Mutex Obtained
+				Ok(guard) => profilesGuard = guard,
+				Err(guard) => return Err(WorkerError::MutexLockFail(0)),
+			};
+			match (*profilesGuard).get_mut(&clientID) {					// Existing Client
+			 	Some(p) => profile = p,
+			 	None => {
+			 		send(&worker.dealer, 
+			 			"Error: Your profile is not found.", 
+			 			&clientID);		
+			 		return Err(WorkerError::ClientNotFound(0))
+			 	},
+			};
+		}
+		
+		/*-------------------- Checks Finished --------------------*/
+		
+		match msg {
+			RecvType::matrix(m) => {
+				if (m.len() != 2) {
+					send(&worker.dealer, 
+						"Please send your public key with a signature.Format: [publicKey, Enc(publicKey)]", 
+						&clientID);
+					return Err(WorkerError::UnexpectedFormat(0))
+				}
+				let publicKey = &m[0];
+				let singedPublicKey = &m[1];
+				let verifyResult = profile.veriKey.verify(
+					publicKey, 
+					&Signature::from_bytes(singedPublicKey).unwrap());
+				match verifyResult {
+					Ok(_) => {
+						profile.publicKey = publicKey.to_vec();
+				 		send(&worker.dealer, 
+				 			"Your publicKey has been save.", 
+				 			&clientID);
+				 		worker.threadSender.send(1);
+					},
+					Err(_) => {
+				 		send(&worker.dealer, 
+				 			"Error: Decryption Fail.", 
+				 			&clientID);
+						return Err(WorkerError::DecryptionFail(0))
+					},
+				}
+			},
+			_ => {
+				send(&worker.dealer, 
+					"Please send your verification key with a signature.Format: [publicKey, Enc(publicKey, veriKey)]", 
+					&clientID);
+				return Err(WorkerError::UnexpectedFormat(0))
+			},
+		}
+		println!("key_exchanged with {:?}", std::str::from_utf8(&clientID).unwrap());
+		return Ok(1)
+	}
 
-                let pk = &authenticated_pk[1];
-                let signature = Signature::from_bytes(&authenticated_pk[0]).unwrap();
-                
-                let client_data = self.client_data.get_mut(&identity).unwrap();
-                let veriKey = VerifyKey::new(
-                                &client_data.veriKey
-                              ).unwrap();
-                
-                let verification = veriKey.verify(pk, &signature);
-                match verification {
-                    Ok(_) => {
-                        client_data.publicKey = pk.to_vec();
-                        self.send("Your publicKey has been save.", &identity);
-                        self.counter += 1;
-                    },
-                    Err(_) => {
-                        self.send("Error: public key authentication failed.", &identity);
-                        return Err("Key Exchange: public key authentication failed.");
-                        },
-                }
-                if self.counter == 3 {
-                    let msgVec = client_data_to_vector(&self.client_data, &self.client_list, "publicKey");
-                    println!("Publishing \n {:?}", msgVec);
-                    self.publish_vec(msgVec, "KE");
-                    self.counter = 0;
-                }
-                Ok(1)
-    		},
-    		"IS" => {
+	fn inpus_sharing(&self, 
+		worker: &Worker, clientID: Vec<u8>, msg: RecvType) -> Result<usize, WorkerError> {
+		
+		let mut profile;
+		let mut profilesGuard;
+		{
+			if *self.STATE.read().unwrap() != 1 {						// Correct State
+				send(&worker.dealer, 
+					"Error: Wrong state.", 
+					&clientID);
+				return Err(WorkerError::WrongState(1))
+			}
+			match self.clientProfiles.lock() {							// Mutex Obtained
+				Ok(guard) => profilesGuard = guard,
+				Err(guard) => return Err(WorkerError::MutexLockFail(0)),
+			};
+			match (*profilesGuard).get_mut(&clientID) {					// Existing Client
+			 	Some(p) => profile = p,
+			 	None => {
+			 		send(&worker.dealer, 
+			 			"Error: Your profile is not found.", 
+			 			&clientID);		
+			 		return Err(WorkerError::ClientNotFound(0))
+			 	},
+			};
+		}
 
-    			Ok(1)
-    		},
-    		_ => {
-    			panic!("What the heck??")
-    		}
-    	}
+		/*-------------------- Checks Finished --------------------*/
+
+		match msg {
+			RecvType::matrix(m) => {
+				return Ok(2)
+			},
+			_ => {
+				send(&worker.dealer, "Please send your shares.", &clientID);
+				return Err(WorkerError::UnexpectedFormat(0))
+			},
+		}
 	}
 
 }
 
-pub fn client_data_to_vector(datas: &HashMap<Vec<u8>, ClientData>, order: &Vec<Vec<u8>>, field: &str) -> Vec<Vec<u8>> {
-    
-    let mut vector = Vec::new();
+pub struct Worker {
+	ID: String,
+	dealer : zmq::Socket,
+	threadSender: mpsc::Sender<usize>,
+}
+
+impl Worker {
+	pub fn new(ID: &str, 
+		context: zmq::Context, threadSender: mpsc::Sender<usize>) -> Worker {
+		let dealer = context.socket(zmq::DEALER).unwrap();
+		dealer.set_identity(ID.as_bytes());
+		assert!(dealer.connect("inproc://backend").is_ok());
+		Worker {
+			ID: ID.to_string(),
+			dealer: dealer,
+			threadSender: threadSender,
+		}
+	}
+}
+
+pub fn format_clientData(datas: &HashMap<Vec<u8>, Profile>, 
+    order: &Vec<Vec<u8>>, field: &str) -> Result<Vec<Vec<u8>>, ServerError> {
+    //println!("order {:?}", order);
+    let mut vecs = Vec::new();
     for key in order {
-        let data = datas.get(key).unwrap();
-        let res = match field {
-            "veriKey" => data.veriKey.clone(),
-            "publicKey" => data.publicKey.clone(),
-            _ => panic!("Unknow field"),
-        };
-        vector.push(res);
+        let data = datas.get(key);
+        match data {
+        	Some(d) => {
+		        let res = match field {
+		            "publicKey" => data.unwrap().publicKey.clone(),
+		            _ => return Err(ServerError::UnexpectedField(0)),
+		        };
+		        vecs.push(res);
+        	},
+        	None => {
+        		return Err(ServerError::MissingClient(0))
+        	},
+        }
     } 
-    vector
+    //print!("format_clientData {:?}", vecs);
+    return Ok(vecs)
 }
-
-
-
-
-
-

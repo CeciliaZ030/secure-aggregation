@@ -67,6 +67,9 @@ poll API
 
 考虑问题及测试方案：
 
+    0. 一个很简单的optimization：所有不需要process的数据都搞成&[u8]
+        - 目前Vec allocate on heap 简直没必要
+
     1. 多人向socket发消息或者package很大，zmq如何queue？怎么spawn threads？
         how does high water mark work?
         (让zmq自己take care线程)

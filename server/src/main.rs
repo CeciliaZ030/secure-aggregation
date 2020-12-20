@@ -1,29 +1,72 @@
-
-//! Hello World server in Rust
-//! Binds REP socket to tcp://*:5555
-//! Expects "Hello" from client, replies with "World"
-use zmq::SNDMORE;
 use std::str;
+use std::sync::*;
+use std::thread;
 
+use zmq;
 use server::*;
-
+use server::param::*;
 
 fn main() {
 
-    println!("hello");
+	println!("hello");
     let context = zmq::Context::new();
-    let mut server = Server::new(context, "6000", "6001");
+    let (tx, rx) = mpsc::channel();
+    let param = Param::new(
+            3073700804129980417u128, 
+            1414118249734601779u128, 20,
+            308414859194273485u128, 15,
+        );
+    let mut server = Arc::new(Server::new(2, 100000, param));
+    // Server Thread
+    /*
+        Runs frontend and backend of zmq sockets structure.
+    */
+    let ctx = context.clone();
+    let svr = server.clone();
+    let serverThread = thread::spawn(move || {
+        svr.server_task(ctx, 8888);
+    });
 
-    loop {
+    // State Thread
+    /*
+        Recieves information from worker threads,
+        constantly keeps track of count,
+        changes state once enough client have participated.
+    */
+    let ctx = context.clone();
+    let svr = server.clone();
+    let stateThread = thread::spawn(move || {
+        svr.state_task(ctx, 9999, rx);
+    });
 
-        let identity = server.take_id();
-        println!("Taken {:?}", String::from_utf8(identity.clone()).unwrap());
-
-        let msg = server.recv_strings();
-        
-        server.workflow(identity, msg);
-
+    // Worker Thread
+    /*
+        Handles msg passed from the frontend,
+        1 msg + 1 reply per loop,
+        infoms state thread once successfully process 1 msg.
+    */
+	let mut workerThreadPool = Vec::new();
+	for i in 0..10 {
+		let worker = Worker::new(
+            &format!("Worker{}", i.to_string()),
+            context.clone(), 
+            tx.clone()
+            );
+        let svr = server.clone();
+    	let child = thread::spawn(move || {
+    		println!("spawning {:?}", i);
+	        svr.worker_task(worker);
+	    });
+	    workerThreadPool.push(child);
     }
+
+
+    for wt in workerThreadPool {
+    	wt.join().unwrap();
+    }
+    serverThread.join().unwrap();
+    stateThread.join().unwrap();
+
+    println!("Application shut down.");
+
 }
-
-
