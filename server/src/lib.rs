@@ -26,8 +26,9 @@ pub struct Server{
 	MAX: usize,
 	BLOCK: usize,
 	param: Param,
-	clientList: Mutex<Vec<Vec<u8>>>,
-	clientProfiles: Mutex<HashMap<Vec<u8>, Profile>>,
+	clientList: Mutex<Vec<Vec<u8>>>,					// array of ID
+	clientProfiles: Mutex<HashMap<Vec<u8>, Profile>>,	// key = ID, value = Profile
+	keyList: RwLock<HashMap<Vec<u8>, Vec<u8>>> 			// key = pubKey, value = ID for input sharing retrival
 }
 
 
@@ -36,7 +37,6 @@ pub struct Profile {
 	veriKey: VerifyKey,
 	publicKey:  Vec<u8>,
 	hasShared: bool,
-
 }
 
 #[derive(Debug)]
@@ -49,6 +49,7 @@ pub enum WorkerError {
 	UnexpectedFormat(usize),
 	UnknownState(usize),
 	WrongState(usize),
+	SharingFail(usize)
 }
 
 #[derive(Debug)]
@@ -70,6 +71,7 @@ impl Server {
 			param: param,
 			clientList: Mutex::new(Vec::new()),
 			clientProfiles: Mutex::new(HashMap::<Vec<u8>, Profile>::new()),
+			keyList: RwLock::new(HashMap::<Vec<u8>, Vec<u8>>::new())
 		}
 	}
 
@@ -102,71 +104,71 @@ impl Server {
 
 		let mut recvCnt = 0;
 		loop {
+			let mut stateGuard;
 			match threadReciever.recv() {
 				Ok(cnt) => {
 					/* worker thread send stateNum 
 					when finish processing one client
 					*/
 					println!("Server mpsc recieved {:?}", cnt);
-					let mut stateGuard = self.STATE.write().unwrap();
+					stateGuard = self.STATE.write().unwrap();
 					if cnt == *stateGuard {
 						recvCnt += 1;
-					}
-					/* when finished client num exceed MAX
-					initiate state change
-					*/
-					if recvCnt >= self.MAX {
-
-						let mut profilesGuard;
-						let mut listGuard;
-						match self.clientProfiles.lock() {							// Mutex Obtained
-							Ok(guard) => profilesGuard = guard,
-							Err(_) => return Err(ServerError::MutexLockFail(0)),
-						}; 
-						match self.clientList.lock() {
-							Ok(guard) => listGuard = guard,
-							Err(_) => return Err(ServerError::MutexLockFail(0)),
-						};
-
-						println!("here ++++++++++++\n\n");
-						let mut res;
-						match *stateGuard {
-							0 => {
-								println!("sent");
-								res = publish(&publisher,
-											"Finished",
-											"HS")
-							},
-							1 => {
-								println!("sent keys");
-
-								res = publish_vecs(&publisher,
-											format_clientData(&(*profilesGuard), &(*listGuard), "publicKey").unwrap(),
-											"KE");
-								let sharingParams = self.param.calculate_sharing(self.MAX, self.BLOCK);
-								let mut spBytes = Vec::new();
-								for sp in sharingParams {
-									spBytes.push(sp.to_le_bytes().to_vec());
-								}
-								res = publish_vecs(&publisher,
-											spBytes,
-											"IS")
-							},
-							_ => res = Ok(0),
-						};
-						match res {
-							Ok(_) => {
-								*stateGuard += 1;
-								println!("Server: STATE change\n {:?}", *profilesGuard);
-								recvCnt = 0;
-							},
-							Err(_) => return Err(ServerError::FailPublish(0)),
-						};
 					}
 				},
 				Err(_) => {
 					continue;
 				},
+			}
+			/* when finished client num exceed MAX
+			initiate state change
+			*/
+			if recvCnt >= self.MAX {
+
+				let mut profilesGuard;
+				let mut listGuard;
+				match self.clientProfiles.lock() {							// Mutex Obtained
+					Ok(guard) => profilesGuard = guard,
+					Err(_) => return Err(ServerError::MutexLockFail(0)),
+				}; 
+				match self.clientList.lock() {
+					Ok(guard) => listGuard = guard,
+					Err(_) => return Err(ServerError::MutexLockFail(0)),
+				};
+
+				println!("here ++++++++++++\n\n");
+				let mut res;
+				match *stateGuard {
+					0 => {
+						println!("sent");
+						res = publish_vecs(&publisher,
+								format_clientData(&(*profilesGuard), &(*listGuard), "veriKey").unwrap(),
+								"HS")
+					},
+					1 => {
+						println!("sent keys");
+
+						res = publish_vecs(&publisher,
+								format_clientData(&(*profilesGuard), &(*listGuard), "publicKey").unwrap(),
+								"KE");
+						let sharingParams = self.param.calculate_sharing(self.MAX, self.BLOCK);
+						println!("sharingParams {:?}", sharingParams);
+						let mut spBytes = Vec::new();
+						for sp in sharingParams {
+							spBytes.push(sp.to_le_bytes().to_vec());
+						}
+						res = publish_vecs(&publisher, spBytes, "IS")
+					},
+					_ => res = Ok(0),
+				};
+				match res {
+					Ok(_) => {
+						*stateGuard += 1;
+						println!("Server: STATE change\n {:?}", *profilesGuard);
+						recvCnt = 0;
+					},
+					Err(_) => return Err(ServerError::FailPublish(0)),
+				};
 			}
 		}
 		return Ok(0)
@@ -181,7 +183,6 @@ impl Server {
 				String::from_utf8(clientID.clone()).unwrap());
 
 			let msg = recv(&worker.dealer);
-			println!("	client message: {:?}", msg);
 
 			match *(self.STATE.read().unwrap()) {
 				0 => self.handshake(&worker, clientID, msg),
@@ -257,6 +258,7 @@ impl Server {
 		
 		let mut profile;
 		let mut profilesGuard;
+		let mut keyListGuard;
 		{
 			if *self.STATE.read().unwrap() != 1 {						// Correct State
 				send(&worker.dealer, 
@@ -266,7 +268,7 @@ impl Server {
 			}
 			match self.clientProfiles.lock() {							// Mutex Obtained
 				Ok(guard) => profilesGuard = guard,
-				Err(guard) => return Err(WorkerError::MutexLockFail(0)),
+				Err(_) => return Err(WorkerError::MutexLockFail(1)),
 			};
 			match (*profilesGuard).get_mut(&clientID) {					// Existing Client
 			 	Some(p) => profile = p,
@@ -274,13 +276,18 @@ impl Server {
 			 		send(&worker.dealer, 
 			 			"Error: Your profile is not found.", 
 			 			&clientID);		
-			 		return Err(WorkerError::ClientNotFound(0))
+			 		return Err(WorkerError::ClientNotFound(1))
 			 	},
 			};
+			match self.keyList.write() {
+				Ok(guard) => keyListGuard = guard,
+				Err(_) => return Err(WorkerError::MutexLockFail(1)),
+			}
 		}
 		
 		/*-------------------- Checks Finished --------------------*/
-		
+		let publicKey;
+		let singedPublicKey;		
 		match msg {
 			RecvType::matrix(m) => {
 				if (m.len() != 2) {
@@ -289,26 +296,8 @@ impl Server {
 						&clientID);
 					return Err(WorkerError::UnexpectedFormat(0))
 				}
-				let publicKey = &m[0];
-				let singedPublicKey = &m[1];
-				let verifyResult = profile.veriKey.verify(
-					publicKey, 
-					&Signature::from_bytes(singedPublicKey).unwrap());
-				match verifyResult {
-					Ok(_) => {
-						profile.publicKey = publicKey.to_vec();
-				 		send(&worker.dealer, 
-				 			"Your publicKey has been save.", 
-				 			&clientID);
-				 		worker.threadSender.send(1);
-					},
-					Err(_) => {
-				 		send(&worker.dealer, 
-				 			"Error: Decryption Fail.", 
-				 			&clientID);
-						return Err(WorkerError::DecryptionFail(0))
-					},
-				}
+				publicKey = m[0].clone();
+				singedPublicKey = m[1].clone();
 			},
 			_ => {
 				send(&worker.dealer, 
@@ -317,25 +306,51 @@ impl Server {
 				return Err(WorkerError::UnexpectedFormat(0))
 			},
 		}
+		let verifyResult = profile.veriKey
+								  .verify(&publicKey, &Signature::from_bytes(&singedPublicKey).unwrap());
+		match verifyResult {
+			Ok(_) => {
+				profile.publicKey = publicKey.to_vec();
+				keyListGuard.insert(publicKey.to_vec(), clientID.clone());
+		 		send(&worker.dealer, 
+		 			"Your publicKey has been save.", 
+		 			&clientID);
+		 		worker.threadSender.send(1);
+			},
+			Err(_) => {
+		 		send(&worker.dealer, 
+		 			"Error: Decryption Fail.", 
+		 			&clientID);
+				return Err(WorkerError::DecryptionFail(0))
+			},
+		}
 		println!("key_exchanged with {:?}", std::str::from_utf8(&clientID).unwrap());
 		return Ok(1)
 	}
+
+	// TODO: 把profile做成 Mutex<HashMap<Vec<u8>, Mutex<Profile>>>
+	/*
+		收新client的时候get整个hash map的mutex
+		后面单独取一个profile的mutex就行
+		--> less thread blocking
+	*/
 
 	fn inpus_sharing(&self, 
 		worker: &Worker, clientID: Vec<u8>, msg: RecvType) -> Result<usize, WorkerError> {
 		
 		let mut profile;
 		let mut profilesGuard;
+		let mut keyListGuard;
 		{
-			if *self.STATE.read().unwrap() != 1 {						// Correct State
+			if *self.STATE.read().unwrap() != 2 {						// Correct State
 				send(&worker.dealer, 
 					"Error: Wrong state.", 
 					&clientID);
-				return Err(WorkerError::WrongState(1))
+				return Err(WorkerError::WrongState(2))
 			}
 			match self.clientProfiles.lock() {							// Mutex Obtained
 				Ok(guard) => profilesGuard = guard,
-				Err(guard) => return Err(WorkerError::MutexLockFail(0)),
+				Err(guard) => return Err(WorkerError::MutexLockFail(2)),
 			};
 			match (*profilesGuard).get_mut(&clientID) {					// Existing Client
 			 	Some(p) => profile = p,
@@ -343,20 +358,42 @@ impl Server {
 			 		send(&worker.dealer, 
 			 			"Error: Your profile is not found.", 
 			 			&clientID);		
-			 		return Err(WorkerError::ClientNotFound(0))
+			 		return Err(WorkerError::ClientNotFound(2))
 			 	},
 			};
+			match self.keyList.read() {
+				Ok(guard) => keyListGuard = guard,
+				Err(_) => return Err(WorkerError::MutexLockFail(2)),
+			}
 		}
 
 		/*-------------------- Checks Finished --------------------*/
 
 		match msg {
 			RecvType::matrix(m) => {
-				return Ok(2)
-			},
+				let sendTo = match keyListGuard.get(&m[0]) {
+					Some(id) => id,
+					None => return Err(WorkerError::ClientNotFound(2)),
+				};
+				println!("input sharing matix (len: {:?}) from {:?} to {:?}", 
+					m.len(), str::from_utf8(&clientID).unwrap(), str::from_utf8(&sendTo).unwrap());
+				
+				let msg = vec![profile.publicKey.clone(), m[1].clone()];
+				match send_vecs(&worker.dealer, msg, &sendTo) {
+					Ok(_) => {
+						send(&worker.dealer,
+							format!("sharing from {:?} to {:?} successful", 
+								str::from_utf8(&clientID).unwrap(),
+								str::from_utf8(&sendTo).unwrap()).as_str(),
+							&clientID);
+						return Ok(2)
+					},
+					Err(_) => return Err(WorkerError::SharingFail(2)),
+				};
+			}, 
 			_ => {
 				send(&worker.dealer, "Please send your shares.", &clientID);
-				return Err(WorkerError::UnexpectedFormat(0))
+				return Err(WorkerError::UnexpectedFormat(2))
 			},
 		}
 	}
@@ -392,7 +429,10 @@ pub fn format_clientData(datas: &HashMap<Vec<u8>, Profile>,
         match data {
         	Some(d) => {
 		        let res = match field {
-		            "publicKey" => data.unwrap().publicKey.clone(),
+		        	"veriKey" => VerifyKey::to_encoded_point(&d.veriKey, true)
+		        					.to_bytes()
+		        					.to_vec(),
+		            "publicKey" => d.publicKey.clone(),
 		            _ => return Err(ServerError::UnexpectedField(0)),
 		        };
 		        vecs.push(res);
