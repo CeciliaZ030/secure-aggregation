@@ -187,7 +187,7 @@ impl Server {
 			match *(self.STATE.read().unwrap()) {
 				0 => self.handshake(&worker, clientID, msg),
 				1 => self.key_exchange(&worker, clientID, msg),
-				2 => self.inpus_sharing(&worker, clientID, msg),
+				2 => self.input_sharing(&worker, clientID, msg),
 				_ => Err(WorkerError::UnknownState(0))
 			};
 		}
@@ -335,7 +335,7 @@ impl Server {
 		--> less thread blocking
 	*/
 
-	fn inpus_sharing(&self, 
+	fn input_sharing(&self, 
 		worker: &Worker, clientID: Vec<u8>, msg: RecvType) -> Result<usize, WorkerError> {
 		
 		let mut profile;

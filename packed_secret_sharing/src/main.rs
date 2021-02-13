@@ -17,7 +17,7 @@ fn main() {
     let r2 = 1266473570726112470u128;
     let r3 = 2230453091198852918u128;
 
-    let mut pss = PackedSecretSharing::new(p, r2, r3, 511, 4, 600);
+    let mut pss = PackedSecretSharing::new(p, r2, r3, 512, 729, 4, 600);
     //prime: u128, root2: u128, root3:u128, degree: usize, num_secrets: usize, num_shares: usize
     
     let secrets: Vec<u128> = vec![6666666666u128, 8888888888u128, 9999999999u128, 1111111111u128];

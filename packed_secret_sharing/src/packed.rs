@@ -13,7 +13,8 @@ pub struct PackedSecretSharing {
 	pub rootTable3: Vec<u128>,
 
 	// degree of the sharing poly
-	degree: usize,
+	degree2: usize,
+	degree3: usize,
 	num_secrets: usize,
 	num_shares: usize,
 
@@ -24,22 +25,17 @@ pub struct PackedSecretSharing {
 impl PackedSecretSharing {
 
 	pub fn new(prime: u128, root2: u128, root3:u128, 
-			   degree: usize, num_secrets: usize, num_shares: usize) -> PackedSecretSharing {
+			   degree2: usize, degree3: usize, num_secrets: usize, num_shares: usize) -> PackedSecretSharing {
 
 		// degree must allow num_secrets to uniquely define the poly
-		// must be power of two to do NTT
-		assert!(degree <= num_shares && degree >= num_secrets);
-  		assert!((degree + 1).is_power_of_two());
 
-		let L2 = degree + 1;
-		let mut rootTable2 = vec![0u128; L2];
-		for i in 0..L2 {
+		let mut rootTable2 = vec![0u128; degree2];
+		for i in 0..degree2 {
 			rootTable2[i] = root2.modpow(&(i as u128), &prime);	
 		}
 
-  		let L3 = round_to_pow3(num_shares);
-  		let mut rootTable3 = vec![0u128; L3];
-		for i in 0..L3 {
+  		let mut rootTable3 = vec![0u128; degree3];
+		for i in 0..degree3 {
 			rootTable3[i] = root3.modpow(&(i as u128), &prime);
 		}
 
@@ -51,7 +47,8 @@ impl PackedSecretSharing {
 			rootTable2: rootTable2,
 			rootTable3: rootTable3,
 
-			degree: degree,
+			degree2: degree2,
+			degree3: degree3,
 			num_secrets: num_secrets,
 			num_shares: num_shares,
 
@@ -117,8 +114,8 @@ impl PackedSecretSharing {
 
 	pub fn reconstruct(&mut self, shares_point: &Vec<u128>, shares_val: &Vec<u128>) -> Vec<u128> {
 
-		// must have more shares than degree+1 but less than the number initialized
-		assert!(shares_point.len() >= self.degree + 1 && shares_point.len() <= self.num_shares);
+		// must have more shares than degree2 but less than the number initialized
+		assert!(shares_point.len() >= self.degree2 && shares_point.len() <= self.num_shares);
 		assert!(shares_point.len() == shares_val.len());
 
 		self.rootTable2.split_off(self.num_secrets);
