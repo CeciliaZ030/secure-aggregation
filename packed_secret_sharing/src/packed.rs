@@ -83,11 +83,43 @@ impl PackedSecretSharing {
 	secret = [s0, ...., s26]
 */
 
+	pub fn share_u64(&mut self, secrets: &[u64]) -> Vec<u128> {
+		
+		assert!(secrets.len() == self.num_secrets);
+		let L2 = self.degree2;
+		let L3 = self.degree3;
+
+		// pack random values to define poly
+		let mut _secrets = Vec::<u128>::new();
+		let mut rng = thread_rng();
+		for i in 0..self.num_secrets {
+			_secrets.push(secrets[i] as u128);
+		}
+		for i in self.num_secrets..L2 {
+			_secrets.push(rng.gen_range(0, &self.prime));
+		}
+
+		// use radix2_DFT to from the poly
+		let mut poly = ntt::inverse2(_secrets.clone(), &self.prime, &self.rootTable2);
+		//println!("poly first coeff {:?}", poly[0]);
+
+
+		for i in L2 ..L3 {
+			poly.push(0u128);
+		}
+
+		// share with radix2_DFT
+		let shares = ntt::transform3(poly, &self.prime, &self.rootTable3);
+		//println!("len {:?}, first share {:?}", shares.len(), shares[0]);
+
+		shares
+	}
+
 	pub fn share(&mut self, secrets: &Vec<u128>) -> Vec<u128> {
 		
 		assert!(secrets.len() == self.num_secrets);
-		let L2 = self.rootTable2.len();
-		let L3 = self.rootTable3.len();
+		let L2 = self.degree2;
+		let L3 = self.degree3;
 
 		// pack random values to define poly
 		let mut _secrets = secrets.clone();

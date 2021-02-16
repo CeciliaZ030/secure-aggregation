@@ -202,7 +202,7 @@ impl Client{
 
 		println!("computing shares with param d2: {:?}, d3: {}, block: {}, clientNum {}", degreeTwo, degreeThree, blockLength, clientNum);
 		for i in 0..input.len()/blockLength {
-			let shares = pss.share(
+			let shares = pss.share_u64(
 				&input[blockLength*i..blockLength+blockLength*i]	// on heap
 			);
 			for j in 0..clientNum {

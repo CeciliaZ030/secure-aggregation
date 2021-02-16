@@ -16,7 +16,7 @@ fn main() {
             1414118249734601779u128, 20,
             308414859194273485u128, 15,
         );
-    let mut server = Arc::new(Server::new(2, 100000, param));
+    let mut server = Arc::new(Server::new(3, 100000, param));
     // Server Thread
     /*
         Runs frontend and backend of zmq sockets structure.

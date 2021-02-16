@@ -60,7 +60,7 @@ impl Param {
 			power2 += 1;
 		}
 		power2 -= 1;
-		degree = 2usize.pow(power2);
+		let degree2 = 2usize.pow(power2);
 		println!("power2 {:?}, degree {:?}", power2, degree);
 
 		// find the nearest exponent of three
@@ -73,11 +73,13 @@ impl Param {
 			n *= 3;
 			power3 += 1;
 		}
+		let degree3 = n;
 		println!("power3 {:?}", power3);
 
 
 		return vec![
-			degree as u128,						// degree
+			degree2 as u128,					// degree2
+			degree3 as u128,					// degree3
 			(degree - numCorrupted) as u128,	// block length
 			numCorrupted as u128,				// number of corrupted parties
 			self.P as u128,						// prime

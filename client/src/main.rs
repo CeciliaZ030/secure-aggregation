@@ -7,24 +7,18 @@ use client::*;
 
 fn main() {
 	
-	let myName = "Cathy";
+	let myName = "Alice";
     let context = zmq::Context::new();
-    let mut client = Client::new(&myName, context, "6000", "6001");
+    let mut client = Client::new(&myName, context, "8888", "9999");
 
     //Key Exhcnage 
     client.handshake();
     client.key_exchange();
 
-	let mut input = Vec::<u8>::new();
-	for _ in 0..100 {
-		let mut temp = [0u8; 32];
-		OsRng.fill_bytes(&mut input);
-		input.extend(temp);
+	let mut input = Vec::<u64>::new();
+	for _ in 0..10000 {
+		input.push(OsRng.next_u64());
 	}
-
-	//random input generate
-	let mut input = [0u8; 100_000];
-	OsRng.fill_bytes(&mut input);
 	println!("{:?}", input[9999]);
 	client.input_sharing(&input);
 }
