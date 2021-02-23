@@ -1,5 +1,8 @@
 use std::str;
 use std::collections::HashMap;
+use std::time::Duration;
+use std::convert::TryInto;
+
 
 use zmq::SNDMORE;
 use zmq::Message;
@@ -106,11 +109,10 @@ impl Client{
 			Err(_) => return Err(ClientError::EncryptionError(0)),
 		};
 		self.veriKey = VerifyKey::from(&self.signKey);
-
 		// Wait for clients finish joining
 		// State change
 		// recieve others' verification key
-		let waitRes = self.wait_state_change("HS");
+		let waitRes = self.state_change_broadcast("HS");
 		match waitRes {
 			RecvType::matrix(m) => {
 				println!("Recieved other's vk: \n {:?}", &m);
@@ -145,7 +147,7 @@ impl Client{
 		// Wait for clients finish sending keys
 		// State change
 		// recieve others' Deffie-Hellman key	
-		let waitRes = self.wait_state_change("KE");
+		let waitRes = self.state_change_broadcast("KE");
 		let publicKeys = match waitRes {
 			RecvType::matrix(m) => m,
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
@@ -176,35 +178,37 @@ impl Client{
 
 	pub fn input_sharing(&mut self, input: &Vec<u64>) -> Result<usize, ClientError> {
 
-		let waitRes = self.after_state_change("IS");
+		let waitRes = self.state_change_broadcast("IS");
 		let sharingParams = match waitRes {
-			RecvType::matrix(m) => {
-				assert_eq!(m.len(), 7);
-				m
+			RecvType::bytes(m) => {
+				assert_eq!(m.len(), 7*16);
+				read_le_u128(m)
 			},
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
 
-		let degreeTwo = u128::from_le_bytes(bytesToArr(&sharingParams[0])) as usize;
-		let degreeThree = u128::from_le_bytes(bytesToArr(&sharingParams[1])) as usize;
-		let blockLength = u128::from_le_bytes(bytesToArr(&sharingParams[2])) as usize;
-		let numCorrupted = u128::from_le_bytes(bytesToArr(&sharingParams[3]));
-		let prime = u128::from_le_bytes(bytesToArr(&sharingParams[4]));
-		let rootTwo = u128::from_le_bytes(bytesToArr(&sharingParams[5]));
-		let rootThree = u128::from_le_bytes(bytesToArr(&sharingParams[6]));
+		let degreeTwo = sharingParams[0] as usize;
+		let degreeThree = sharingParams[1]as usize;
+		let blockLength = sharingParams[2] as usize;
+		let numCorrupted = sharingParams[3];
+		let prime = sharingParams[4];
+		let rootTwo = sharingParams[5];
+		let rootThree = sharingParams[6];
 		let clientNum = self.shareKeys.len();
+		let blockNum = input.len()/blockLength;
 
+		println!("computing shares with param d2: {:?}, d3: {}, blocks: {} * {} per block, clientNum {}", degreeTwo, degreeThree, input.len()/blockLength, blockLength, clientNum);
 		let mut pss = PackedSecretSharing::new(prime, 
 											rootTwo, rootThree, 
 											degreeTwo, degreeThree, 
 											blockLength, clientNum);
 		let mut resultMatrix = vec![vec![0u8; 0]; clientNum];
 
-		println!("computing shares with param d2: {:?}, d3: {}, block: {}, clientNum {}", degreeTwo, degreeThree, blockLength, clientNum);
 		for i in 0..input.len()/blockLength {
 			let shares = pss.share_u64(
 				&input[blockLength*i..blockLength+blockLength*i]	// on heap
 			);
+			println!("one poly {:?}", shares.len());
 			for j in 0..clientNum {
 				resultMatrix[j].extend((shares[j] as u64).to_le_bytes().to_vec())
 			}
@@ -212,7 +216,7 @@ impl Client{
 		/* TODO: 
 		 Make sure shares and keys are always in the same order
 		*/
-		println!("raw shares (vec len {})..", resultMatrix[0].len());
+		println!("raw shares ({} * {})..", resultMatrix.len(), resultMatrix[0].len());
 		for (i, (pk, shareKey)) in self.shareKeys.iter().enumerate() {
 			
 			// Encrypt with the share key
@@ -238,7 +242,8 @@ impl Client{
 		}
 		// Recv clients shares
 		println!("recieving shares...");
-		let cnt = 0;
+		let mut aggregatedShares = vec![0u128; blockNum];
+		let mut cnt = 0;
 		loop {
 			let mut item = [self.sender.as_poll_item(zmq::POLLIN)];
 	        zmq::poll(&mut item, 2).unwrap();
@@ -252,30 +257,64 @@ impl Client{
 								let k = GenericArray::from_slice(c);
 								Aes256Gcm::new(k)
 	        	 			},
-	        	 			None => {println!("fail get client"); return Err(ClientError::UnidentifiedShare(2))},
+	        	 			None => {
+	        	 				println!("fail get client"); 
+	        	 				return Err(ClientError::UnidentifiedShare(2));
+	        	 			},
 	        	 		};
 						let nonce = GenericArray::from_slice(b"unique nonce");
-			 			let plaintext = match cipher.decrypt(nonce, m[1].as_ref()) {
-			 				Ok(p) => p,
-			 				Err(_) => {println!("fail decrypt"); return Err(ClientError::EncryptionError(2))},
-			 			};
 
+			 			let plaintext = match cipher.decrypt(nonce, m[1].as_ref()) {
+			 				Ok(p) => read_le_u64(p),
+			 				Err(_) => {
+			 					println!("fail decrypt"); 
+			 					return Err(ClientError::EncryptionError(2));
+			 				}
+			 			};
+			 			println!("plaintext {:?}", plaintext);
+			 			println!("aggregatedShares {:?}", aggregatedShares);
+
+			 			for i in 0..plaintext.len() {
+			 				aggregatedShares[i] = (aggregatedShares[i] + plaintext[i] as u128) % prime;
+			 			}
+			 			cnt += 1;
+				        println!("{:?} has aggregated {} shares", self.ID, cnt);
+				        if(cnt == clientNum){
+				        	break;
+				        }
 	        	 	},
-	        	 	RecvType::string(s) => println!("{:?}", s),
-	        	 	_ => {println!("fail type"); return Err(ClientError::UnexpectedRecv(msg))},
+	        	 	RecvType::string(s) => println!("--{:?}", s),
+	        	 	_ => return Err(ClientError::UnexpectedRecv(msg)),
 	        	 };
 
-	        }
+	        };
 		}
-		Ok(1)
+
+		self.state_change_broadcast("AG");
+
+		let mut asBytes = Vec::new();
+		println!("aggregatedShares {:?}", aggregatedShares);
+		for a in aggregatedShares {
+			asBytes.extend((a as u64).to_le_bytes().to_vec());
+		}
+		let msg = vec![
+			asBytes.clone(),
+			self.signKey.sign(&asBytes).as_ref().to_vec()
+		];
+		match send_vecs(&self.sender, msg) {
+			Ok(_) => return Ok(3),
+			Err(_) => return Err(ClientError::SendFailure(2)),
+		};
+
+		println!("OK from input_sharing");
 	}
 
-	pub fn wait_state_change(&self, curState: &str) -> RecvType {
+	pub fn state_change_broadcast(&self, curState: &str) -> RecvType {
 
 		let subscriber = self.context.socket(zmq::SUB).unwrap();
 		assert!(subscriber.connect(&self.subPort).is_ok());
 
-		println!("waiting for {} ....", curState);
+		println!("waiting in {} ....", curState);
 		subscriber.set_subscribe(curState.as_bytes()).unwrap();
 		
 		loop {
@@ -288,31 +327,35 @@ impl Client{
 		}
 	}
 
-	pub fn after_state_change(&self, curState: &str) -> RecvType {
-
-		let subscriber = self.context.socket(zmq::SUB).unwrap();
-		assert!(subscriber.connect(&self.subPort).is_ok());
-
-		println!("getting info for {} ....", curState);
-		subscriber.set_subscribe(curState.as_bytes()).unwrap();
-		
-		loop {
-			let mut item = [subscriber.as_poll_item(zmq::POLLIN)];
-	        zmq::poll(&mut item, 2).unwrap();
-	        if item[0].is_readable() {
-	        	return recv_broadcast(&subscriber)
-	        }
-		}
-	}
 }
 
 
-fn bytesToArr(v: &Vec<u8>) -> [u8; 16] {
-	let mut res = [0u8; 16];
-	for (i, t) in v.iter().enumerate() {
-		res[i] = t.clone();
-	}
-	return res
+
+fn read_le_u128(input: Vec<u8>) -> Vec<u128> {
+    let mut res = Vec::<u128>::new();
+    let mut ptr = &mut input.as_slice();
+    loop {
+        let (int_bytes, rest) = ptr.split_at(std::mem::size_of::<u128>());
+        *ptr = rest;
+        res.push(u128::from_le_bytes(int_bytes.try_into().unwrap()));
+        if (rest.len() < 8) {
+            break;
+        }
+    }
+    res
 }
 
+fn read_le_u64(input: Vec<u8>) -> Vec<u64> {
+    let mut res = Vec::<u64>::new();
+    let mut ptr = &mut input.as_slice();
+    loop {
+        let (int_bytes, rest) = ptr.split_at(std::mem::size_of::<u64>());
+        *ptr = rest;
+        res.push(u64::from_le_bytes(int_bytes.try_into().unwrap()));
+        if (rest.len() < 8) {
+            break;
+        }
+    }
+    res
+}
 
