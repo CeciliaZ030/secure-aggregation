@@ -18,9 +18,7 @@ fn main() {
 
     //Key Exhcnage 
     client.handshake();
-    println!("wtf");
     client.key_exchange();
-    println!("wtf");
 
 	let mut input = Vec::<u64>::new();
 	for _ in 0..vectorSize {
