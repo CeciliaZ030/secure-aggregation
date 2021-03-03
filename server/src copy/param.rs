@@ -9,8 +9,8 @@ pub struct Param {
 	rootTwos: Vec<u128>,
 	rootThrees: Vec<u128>,
 
-	pub useDegree2: usize,
-	pub useDegree3: usize,
+	pub useDegree2: u128,
+	pub useDegree3: u128,
 	pub useRoot2: u128,
 	pub useRoot3: u128,
 }
@@ -49,8 +49,8 @@ impl Param {
 			rootThrees: rootThrees,
 
 			// init through calculate_sharing
-			useDegree2: 0,
-			useDegree3: 0,
+			useDegree2: 0u128,
+			useDegree3: 0u128,
 			useRoot2: 0u128,
 			useRoot3: 0u128,
 		}
@@ -71,7 +71,7 @@ impl Param {
 			power2 += 1;
 		}
 		power2 -= 1;
-		self.useDegree2 = 2usize.pow(power2 as u32);
+		self.useDegree2 = 2u128.pow(power2 as u32);
 		self.useRoot2 = self.rootTwos[power2];
 		println!("power2 {:?}, reconstruction limit {:?}", power2, reconstructLimit);
 
@@ -85,15 +85,15 @@ impl Param {
 			n *= 3;
 			power3 += 1;
 		}
-		self.useDegree3 = 3usize.pow(power3 as u32);
+		self.useDegree3 = 3u128.pow(power3 as u32);
 		self.useRoot3 = self.rootTwos[power3];
 		println!("power3 {:?}", power3);
 
 		// blockLength <= numClient/3
 		/* Ex: N = 1000, V = 100,000
-		*	   L = 1000/3 = 333 
+		*	   L = 1000/3 = 333
 		*	   B = 100,000/333 = 300
-		*		256 < 333 < 512
+		*
 		*	decrease the numbers of NTT rounds
 		*	V = B↓ * L↑ 
 		*	  = V/(N/3)*(N/3)
@@ -109,9 +109,9 @@ impl Param {
 	pub fn send(&self) -> Vec<u128>{
 
 		return vec![
-			self.useDegree2 as u128,	// degree2
-			self.useDegree3 as u128,	// degree3
-			self.P,						// prime
+			self.useDegree2,			// degree2
+			self.useDegree3,			// degree3
+			self.P as u128,				// prime
 			self.useRoot2,				// two-power root of unity
 			self.useRoot3,				// three-power root of unity
 		];

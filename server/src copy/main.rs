@@ -6,7 +6,6 @@ use std::env;
 use zmq;
 use server::*;
 use server::param::*;
-use server::workers::*;
 
 fn main() {
 
@@ -23,8 +22,8 @@ fn main() {
     let mut server = Arc::new(Server::new(
         args[1].parse::<usize>().unwrap(),          // MAX clients
         args[2].parse::<usize>().unwrap(), param)   // Vecor length
-    );
 
+    );
     // Server Thread
     /*
         Runs frontend and backend of zmq sockets structure.
@@ -59,7 +58,7 @@ fn main() {
             &format!("Worker{}", i.to_string()),
             context.clone(), 
             tx.clone()
-        );
+            );
         let svr = server.clone();
     	let child = thread::spawn(move || {
     		println!("spawning {:?}", i);

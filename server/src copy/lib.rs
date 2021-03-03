@@ -23,10 +23,20 @@ mod sockets;
 pub mod worker;
 pub mod param;
 use sockets::*;
-use param::*;
 use worker::*;
-use worker::ServerError;
-use worker::WorkerError;
+use param::*;
+
+pub struct Server {
+	STATE: RwLock<usize>,
+	MAX: usize,
+	V: usize,
+	param: Param,
+	clientList: Mutex<Vec<Vec<u8>>>,					// array of ID
+	clientProfiles: Mutex<HashMap<Vec<u8>, Profile>>,	// key = ID, value = Profile
+	keyList: RwLock<HashMap<Vec<u8>, Vec<u8>>>,			// key = pubKey, value = ID for input sharing retrival
+	shares: Mutex<Vec<Vec<u64>>>,
+	result: Vec<u64>,
+}
 
 
 #[derive(Debug)]
@@ -36,31 +46,20 @@ pub struct Profile {
 	hasShared: bool,
 }
 
-pub struct Server {
-	STATE: RwLock<usize>,
-	MAX: usize,
-	V: usize,
-	param: Param,
-	clientList: RwLock<Vec<Vec<u8>>>,					// array of ID
-	clientProfiles: RwLock<HashMap<Vec<u8>, Profile>>,	// key = ID, value = Profile
-	keyList: RwLock<HashMap<Vec<u8>, Vec<u8>>>,			// key = pubKey, value = ID for input sharing retrival
-	shares: Mutex<Vec<Vec<u64>>>,
-}
-
-
 impl Server {
 
 	pub fn new(maxClients: usize, vectorSize: usize, mut param: Param) -> Server {
-		param.calculate(maxClients, vectorSize);
+		param.calculate(maxClients, blockLength);
 		Server {
 			STATE: RwLock::new(0usize),
 			MAX: maxClients,
-			V: vectorSize,
+			V: blockLength,
 			param: param,
-			clientList: RwLock::new(Vec::new()),
-			clientProfiles: RwLock::new(HashMap::<Vec<u8>, Profile>::new()),
+			clientList: Mutex::new(Vec::new()),
+			clientProfiles: Mutex::new(HashMap::<Vec<u8>, Profile>::new()),
 			keyList: RwLock::new(HashMap::<Vec<u8>, Vec<u8>>::new()),
 			shares: Mutex::new(Vec::new()),
+			result: Vec::new(),
 		}
 	}
 
@@ -81,7 +80,7 @@ impl Server {
 		return Ok(0)
 	}
 
-	pub fn state_task(&self, 
+		pub fn state_task(&self, 
 		context: zmq::Context, port2: usize, threadReciever: mpsc::Receiver<usize>) -> Result<usize, ServerError> {
 
     	println!("{}", &format!("tcp://*:{:?}", port2));
@@ -92,17 +91,16 @@ impl Server {
 			.is_ok());
 
 		let mut recvCnt = 0;
-		let mut finalResult;
 		loop {
 			let mut stateGuard;
 			match threadReciever.recv() {
-				Ok(alarm) => {
+				Ok(cnt) => {
 					/* worker thread send stateNum 
 					when finish processing one client
 					*/
-					println!("Server mpsc recieved alarm{:?}, cnt {}", alarm, recvCnt);
+					println!("Server mpsc recieved {:?}", cnt);
 					stateGuard = self.STATE.write().unwrap();
-					if alarm == *stateGuard {
+					if cnt == *stateGuard {
 						recvCnt += 1;
 					}
 				},
@@ -113,41 +111,41 @@ impl Server {
 			/* when finished client num exceed MAX
 			initiate state change
 			*/
-			if (*stateGuard != 2 && recvCnt >= self.MAX) || (*stateGuard == 2 && recvCnt >= self.MAX*self.MAX) {
-				
-				let profilesGuard = match self.clientProfiles.write() {
-					Ok(guard) => guard,
+			if (*stateGuard == 2 && recvCnt >= self.MAX*self.MAX) || (*stateGuard != 2 && recvCnt >= self.MAX) {
+
+				let mut profilesGuard;
+				let mut listGuard;
+				match self.clientProfiles.lock() {							// Mutex Obtained
+					Ok(guard) => profilesGuard = guard,
 					Err(_) => return Err(ServerError::MutexLockFail(0)),
 				}; 
-				let listGuard = match self.clientList.write() {
-					Ok(guard) => guard,
+				match self.clientList.lock() {
+					Ok(guard) => listGuard = guard,
 					Err(_) => return Err(ServerError::MutexLockFail(0)),
 				};
-				let res = match *stateGuard {
-					0 => publish_vecs(
-							&publisher, 
-							format_clientData(&(*profilesGuard), &(*listGuard), "veriKey").unwrap(), 
-							"HS"),
+
+				let mut res;
+				match *stateGuard {
+					0 => {
+						res = publish_vecs(&publisher,
+								format_clientData(&(*profilesGuard), &(*listGuard), "veriKey").unwrap(),
+								"HS")
+					},
 					1 => {
-						publish_vecs(
-							&publisher,
-							format_clientData(&(*profilesGuard), &(*listGuard), "publicKey").unwrap(), 
-							"KE");
+						res = publish_vecs(&publisher,
+								format_clientData(&(*profilesGuard), &(*listGuard), "publicKey").unwrap(),
+								"KE");
 						let sharingParams = self.param.send();
 						println!("sharingParams {:?}", sharingParams);
 						let mut spBytes = Vec::new();
 						for sp in sharingParams {
 							spBytes.extend(sp.to_le_bytes().to_vec());
 						}
-						publish(&publisher, spBytes, "IS")
+						res = publish(&publisher, spBytes, "IS")
 					},
-					2 => publish(&publisher, "Please send your aggregated shares.", "AG"),
-					3 => {
-						finalResult = self.reconstruction();
-						break;
-						Ok(0)
-					},
-					_ => Err(0),
+					2 => res = publish(&publisher, "Please send your aggregated shares.", "AG"),
+					3 => res = self.reconstruction(),
+					_ => res = Ok(0),
 				};
 				match res {
 					Ok(_) => {
@@ -185,170 +183,210 @@ impl Server {
 
 	fn handshake(&self, 
 		worker: &Worker, clientID: Vec<u8>, msg: RecvType) -> Result<usize, WorkerError> {
-	/*
-		Check client not existed & under limit
-		Record ID and release lock
-	*/
-		match self.clientList.write() {
-			Ok(guard) => {
-				if guard.contains(&clientID) {
-					send(&worker.dealer, "Error: You already exists.", &clientID);
-					return Err(WorkerError::MaxClientExceed(0));
-				}
-				if guard.len() == self.MAX {
-		            send(&worker.dealer, "Error: Reached maximun client number.", &clientID);
-					return Err(WorkerError::MaxClientExceed(0));	
-				}
-				if !self.check_state(0) { 
-					send(&worker.dealer,"Error: Wrong state.", &clientID);
-					return Err(WorkerError::WrongState(0)); 
-				}
-				guard.push(clientID.clone());
-			},
-			Err(_) => return Err(WorkerError::MutexLockFail(0)),
-		};
+		let mut profilesGuard;
+		let mut listGuard;
+		{
+			if *self.STATE.read().unwrap() != 0 {						// Correct State
+				send(&worker.dealer, 
+					"Error: Wrong state.", 
+					&clientID);
+				return Err(WorkerError::WrongState(0))
+			}
+			match self.clientProfiles.lock() {							// Mutex Obtained
+				Ok(guard) => profilesGuard = guard,
+				Err(guard) => return Err(WorkerError::MutexLockFail(0)),
+			};
+			match self.clientList.lock() {
+				Ok(guard) => listGuard = guard,
+				Err(guard) => return Err(WorkerError::MutexLockFail(0)),
+			};
+			if (*profilesGuard).contains_key(&clientID) || (*listGuard).contains(&clientID) {				
+																		// New Client
+				send(&worker.dealer, 
+					"Error: You already exists.", 
+					&clientID);
+				println!("Error: You already exists.");
+				return Err(WorkerError::ClientExisted(0))
+			}
+			if (*profilesGuard).len() == self.MAX {						// Under Limit
+	            send(&worker.dealer, 
+	            	"Error: Reached maximun client number.", 
+	            	&clientID);
+				return Err(WorkerError::MaxClientExceed(0))
+			}
+		}
 
-	/*
-		Generate ECDSA keys and send
-		Create new profile
-		Write to mutex (don't need check_state)
-	*/
+		/*-------------------- Checks Finished --------------------*/
 
 		let signKey = SigningKey::random(&mut OsRng);
 		let veriKey = VerifyKey::from(&signKey);
 		send(&worker.dealer,
 		 	SigningKey::to_bytes(&signKey).to_vec(), 
-		 	&clientID
-		 );
+		 	&clientID);
 
-		let newProfiel = Profile { 
-			veriKey: veriKey, 
-			publicKey: Vec::new(), 
-			hasShared: false,
-		};
-		match self.clientProfiles.write() {
-			Ok(guard) => guard.insert( clientID.clone(), newProfiel),
-			Err(guard) => return Err(WorkerError::MutexLockFail(0)),
-		};
+		(*profilesGuard).insert(
+			clientID.clone(),
+			Profile{
+				veriKey: veriKey,
+				publicKey: Vec::new(),
+				hasShared: false,
+			}
+		);
+		(*listGuard).push(clientID.clone());
 		worker.threadSender.send(0);
+
 		println!("handshaked with {:?}", std::str::from_utf8(&clientID).unwrap());
-		return Ok(1);
+		return Ok(1)
 	}
 
 	fn key_exchange(&self, 
 		worker: &Worker, clientID: Vec<u8>, msg: RecvType) -> Result<usize, WorkerError> {
-	/*
-		Make sure client exist
-		Parse msg
-	*/
-		if !self.check_exist(&clientID) {
-			send(&worker.dealer,"Error: Your profile not found", &clientID);
-			return Err(WorkerError::ClientNotFound(1))
+		
+		let mut profile;
+		let mut profilesGuard;
+		let mut keyListGuard;
+		{
+			if *self.STATE.read().unwrap() != 1 {						// Correct State
+				send(&worker.dealer, 
+					"Error: Wrong state.", 
+					&clientID);
+				return Err(WorkerError::WrongState(1))
+			}
+			match self.clientProfiles.lock() {							// Mutex Obtained
+				Ok(guard) => profilesGuard = guard,
+				Err(_) => return Err(WorkerError::MutexLockFail(1)),
+			};
+			match (*profilesGuard).get_mut(&clientID) {					// Existing Client
+			 	Some(p) => profile = p,
+			 	None => {
+			 		send(&worker.dealer, 
+			 			"Error: Your profile is not found.", 
+			 			&clientID);		
+			 		return Err(WorkerError::ClientNotFound(1))
+			 	},
+			};
+			match self.keyList.write() {
+				Ok(guard) => keyListGuard = guard,
+				Err(_) => return Err(WorkerError::MutexLockFail(1)),
+			}
 		}
+		
+		/*-------------------- Checks Finished --------------------*/
 		let publicKey;
-		let singedPublicKey;
+		let singedPublicKey;		
 		match msg {
 			RecvType::matrix(m) => {
 				if (m.len() != 2) {
 					send(&worker.dealer, 
-						"Please send with format: [publicKey, Enc(publicKey)]", &clientID);
-					return Err(WorkerError::UnexpectedFormat(1))
+						"Please send your public key with a signature.Format: [publicKey, Enc(publicKey)]", 
+						&clientID);
+					return Err(WorkerError::UnexpectedFormat(0))
 				}
 				publicKey = m[0].clone();
-				singedPublicKey = Signature::from_bytes(&m[1]).unwrap();
+				singedPublicKey = m[1].clone();
 			},
 			_ => {
 				send(&worker.dealer, 
-					"Please send with ormat: [publicKey, Enc(publicKey, veriKey)]", &clientID);
+					"Please send your verification key with a signature.Format: [publicKey, Enc(publicKey, veriKey)]", 
+					&clientID);
 				return Err(WorkerError::UnexpectedFormat(0))
 			},
 		}
-	/*
-		Clone veriKey
-		Verify signature
-		Sotre DH pk in profiles & keyList
-	*/
-		let veriKey = match self.clientProfiles.read() {
-			Ok(guard) => guard.get(&clientID).unwrap().veriKey.clone(),
-			Err(_) => return Err(WorkerError::MutexLockFail(1)),
-		};
-		match veriKey.verify(&publicKey, &singedPublicKey) {
+
+		let verifyResult = profile.veriKey.verify(
+			&publicKey, 
+			&Signature::from_bytes(&singedPublicKey).unwrap()
+		);
+
+		match verifyResult {
 			Ok(_) => {
-				if self.check_state(1) {
-					match self.clientProfiles.write() {
-						Ok(guard) => guard.get_mut(&clientID).publicKey = publicKey.to_vec(),
-						Err(_) => return Err(WorkerError::MutexLockFail(1)),
-					};
-					match self.keyList.write() {
-						Ok(guard) => guard.insert(publicKey.to_vec(), clientID.clone()),
-						Err(_) => return Err(WorkerError::MutexLockFail(1)),
-					};
-			 		send(&worker.dealer, "Your publicKey has been save.", &clientID);
-			 	} else {
-			 		send(&worker.dealer,"Error: Wrong state.", &clientID);
-			 		return Err(WorkerError::WrongState(1))
-			 	}
+				profile.publicKey = publicKey.to_vec();
+				keyListGuard.insert(publicKey.to_vec(), clientID.clone());
+		 		send(&worker.dealer, 
+		 			"Your publicKey has been save.", 
+		 			&clientID);
+		 		worker.threadSender.send(1);
 			},
 			Err(_) => {
-		 		send(&worker.dealer, "Error: Decryption Fail.", &clientID);
-				return Err(WorkerError::DecryptionFail(1))
+		 		send(&worker.dealer, 
+		 			"Error: Decryption Fail.", 
+		 			&clientID);
+				return Err(WorkerError::DecryptionFail(0))
 			},
 		}
- 		worker.threadSender.send(1);
- 		println!("key_exchanged with {:?}", std::str::from_utf8(&clientID).unwrap());
+		println!("key_exchanged with {:?}", std::str::from_utf8(&clientID).unwrap());
 		return Ok(1)
 	}
 
+	// TODO: 把profile做成 Mutex<HashMap<Vec<u8>, Mutex<Profile>>>
+	/*
+		收新client的时候get整个hash map的mutex
+		后面单独取一个profile的mutex就行
+		--> less thread blocking
+	*/
 
 	fn input_sharing(&self, 
 		worker: &Worker, clientID: Vec<u8>, msg: RecvType) -> Result<usize, WorkerError> {
-	/*
-		Check client exiists
-		Get the share and delivery target
-	*/
-		if !self.check_exist(&clientID) {
-			send(&worker.dealer,"Error: Your profile not found", &clientID);
-			return Err(WorkerError::ClientNotFound(1))
+		
+		let mut profile;
+		let mut profilesGuard;
+		let mut keyListGuard;
+		{
+			if *self.STATE.read().unwrap() != 2 {						// Correct State
+				send(&worker.dealer, 
+					"Error: Wrong state.", 
+					&clientID);
+				return Err(WorkerError::WrongState(2))
+			}
+			match self.clientProfiles.lock() {							// Mutex Obtained
+				Ok(guard) => profilesGuard = guard,
+				Err(guard) => return Err(WorkerError::MutexLockFail(2)),
+			};
+			match (*profilesGuard).get_mut(&clientID) {					// Existing Client
+			 	Some(p) => profile = p,
+			 	None => {
+			 		send(&worker.dealer, 
+			 			"Error: Your profile is not found.", 
+			 			&clientID);		
+			 		return Err(WorkerError::ClientNotFound(2))
+			 	},
+			};
+			match self.keyList.read() {
+				Ok(guard) => keyListGuard = guard,
+				Err(_) => return Err(WorkerError::MutexLockFail(2)),
+			}
 		}
-		let mut sendTo;
-		let share = match msg {
+
+		/*-------------------- Checks Finished --------------------*/
+
+		match msg {
 			RecvType::matrix(m) => {
-				sendTo = match self.keyList.read().unwrap().get(&m[0]) {
-					Some(id) => id.clone(),
+				let sendTo = match keyListGuard.get(&m[0]) {
+					Some(id) => id,
 					None => return Err(WorkerError::ClientNotFound(2)),
 				};
-				m[1]
+				println!("input sharing matix (len: {:?}) from {:?} to {:?}", 
+					m[1].len(), str::from_utf8(&clientID).unwrap(), str::from_utf8(&sendTo).unwrap());
+				
+				let msg = vec![profile.publicKey.clone(), m[1].clone()];
+				match send_vecs(&worker.dealer, msg, &sendTo) {
+					Ok(_) => {
+						send(&worker.dealer,
+							format!("sharing from {:?} to {:?} successful", 
+								str::from_utf8(&clientID).unwrap(),
+								str::from_utf8(&sendTo).unwrap()).as_str(),
+							&clientID);
+						worker.threadSender.send(2);
+						return Ok(2)
+					},
+					Err(_) => return Err(WorkerError::SharingFail(2)),
+				};
 			}, 
 			_ => {
-				send(&worker.dealer, "Please send your shares as matrix.", &clientID);
+				send(&worker.dealer, "Please send your shares.", &clientID);
 				return Err(WorkerError::UnexpectedFormat(2))
 			},
-		};
-
-		println!("input sharing matix (len: {:?}) from {:?} to {:?}", 
-					share.len(), str::from_utf8(&clientID).unwrap(), str::from_utf8(&sendTo).unwrap());
-	/*
-		Get DH pk of target
-		Send [pk, share] to target
-	*/
-		let publicKey = match self.clientProfiles.read() {
-			Ok(guard) => guard.get(&clientID).unwrap().publicKey.clone(),
-			Err(_) => return Err(WorkerError::MutexLockFail(1)),
-		};
-		let msg = vec![publicKey, share];
-		match send_vecs(&worker.dealer, msg, &sendTo) {
-			Ok(_) => {
-				send(&worker.dealer,
-					format!("sharing from {:?} to {:?} successful", 
-						str::from_utf8(&clientID).unwrap(),
-						str::from_utf8(&sendTo).unwrap()
-					).as_str(),
-					&clientID);
-			},
-			Err(_) => return Err(WorkerError::SharingFail(2)),
-		};
-		worker.threadSender.send(2);
-		return Ok(2)
+		}
 	}
 
 	fn shares_collection(&self, 
@@ -422,9 +460,9 @@ impl Server {
 
 	}
 
-	fn reconstruction(&self) -> Result<Vec<u128>, usize> {
+	fn reconstruction(&self) -> Result<usize, usize> {
 		println!("in reconstruction");
-		let sharesGuard;
+		let mut sharesGuard;
 		{
 			match self.shares.lock() {									// Mutex Obtained
 				Ok(guard) => sharesGuard = guard,
@@ -434,22 +472,19 @@ impl Server {
 		/*-------------------- Checks Finished --------------------*/
 
 		// number of blocks to reconcstruct
-
 		let B = sharesGuard[0].len();
 		let N = sharesGuard.len();
-		let param = &self.param;
-		let mut result = Vec::new();
+		let param = self.param;
 		for i in 0..B {
-			let mut pss;
 			// When V = B * L + remains
 			if i == B-1 && (param.useDegree2 as usize) * B != self.V {
-				pss = PackedSecretSharing::new(
+				let mut pss = PackedSecretSharing::new(
 					param.P, param.R2, param.R3, 
 					param.useDegree2, param.useDegree3, self.V-(param.useDegree2 as usize)*B, N
 					);
 			}
 			else {
-				pss = PackedSecretSharing::new(
+				let mut pss = PackedSecretSharing::new(
 					self.param.P, self.param.R2, self.param.R3, 
 					param.useDegree2, param.useDegree3, param.useDegree2, N
 				);
@@ -458,19 +493,9 @@ impl Server {
 			for j in 0..N {
 				shares.push(sharesGuard[j][i] as u128);
 			}
-			result.extend(pss.reconstruct(&shares));
+			self.result.extend(pss.reconcstruct(&shares));
 		}
-		return Ok(result);
+		return Ok(3);
 
-	}
-
-	fn check_state(&self, state: usize) -> bool {
-		if *self.STATE.read().unwrap() == state {return true;}
-		return false;
-	}
-	fn check_exist(&self, clientID: &Vec<u8>) -> bool {
-		if !self.clientList.read().unwrap().contains(&clientID) {return true;}
-		return false;
 	}
 }
-

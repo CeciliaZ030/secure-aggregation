@@ -72,8 +72,7 @@ pub fn publish<T>(socket: &Socket, data: T, topic: &str) -> Result<usize, usize>
 where
     T: Into<Message> + std::clone::Clone + std::fmt::Debug,
 {
-	println!("pushing {}", topic);
-	for _ in 0..1000 {
+	for _ in 0..10000 {
 		socket.send(topic.as_bytes(), zmq::SNDMORE);
 		match socket.send(data.clone(), 0){
 	        Ok(T) => continue,
