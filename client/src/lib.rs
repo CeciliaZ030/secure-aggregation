@@ -2,7 +2,8 @@ use std::str;
 use std::collections::HashMap;
 use std::time::Duration;
 use std::convert::TryInto;
-
+use std::sync::*;
+use std::thread;
 
 use zmq::SNDMORE;
 use zmq::Message;
@@ -36,7 +37,11 @@ pub struct Client{
 
 	context: zmq::Context,
 	sender: zmq::Socket,
-	subPort: String,
+	subscriber: zmq::Socket,
+	addr2: String,
+
+	rx: mpsc::Receiver<RecvType>,
+	child :thread::JoinHandle<Result<usize, ClientError>>,
 
 	pub ID: String,						//Unique ID that is field element
 
@@ -55,6 +60,7 @@ impl Client{
 	pub fn new(ID: &str, context: zmq::Context, port1: &str, port2: &str) -> Client{
 
 		let sender = context.socket(zmq::DEALER).unwrap();
+		let subscriber = context.socket(zmq::SUB).unwrap();
 
 		let mut addr1: String = "tcp://localhost:".to_owned();
 		let mut addr2: String = "tcp://localhost:".to_owned();
@@ -63,6 +69,14 @@ impl Client{
 		addr2.push_str(port2);
 		sender.set_identity(ID.as_bytes());
 		assert!(sender.connect(&addr1).is_ok());
+		assert!(subscriber.connect(&addr2).is_ok());
+		println!("set_conflate");
+
+		let (tx, rx): (mpsc::Sender<RecvType>, mpsc::Receiver<RecvType>) = mpsc::channel();
+
+    	let child = thread::spawn(move || {
+    		task(tx)
+	    });
 
 		let signKey = SigningKey::random(&mut OsRng);
 		let veriKey = VerifyKey::from(&signKey);
@@ -73,7 +87,11 @@ impl Client{
 
 			context: context,
 			sender: sender,
-			subPort: addr2,
+			subscriber: subscriber,
+			addr2: addr2,
+
+			rx: rx,
+			child: child,
 
 			ID: ID.to_string(),
 
@@ -91,14 +109,16 @@ impl Client{
 
 	pub fn handshake(&mut self) -> Result<usize, ClientError> {
 
-		// Send hello to server
+	/*
+			Client say Hello
+			Server send unique signKey
+			Generate veriKey from signKey
+	*/
+
 		match send(&self.sender, &format!("Hello, I'm {}", self.ID)) {
 			Ok(_) => (),
 			Err(_) => return Err(ClientError::SendFailure(0)),
 		};
-
-		// Server assign a unique private key
-		// for signature
 		let msg = recv(&self.sender);
 		let sk = match msg {
 			RecvType::bytes(b) => b,
@@ -109,9 +129,13 @@ impl Client{
 			Err(_) => return Err(ClientError::EncryptionError(0)),
 		};
 		self.veriKey = VerifyKey::from(&self.signKey);
-		// Wait for clients finish joining
-		// State change
-		// recieve others' verification key
+
+	/*
+			Wait for Handshake finishing
+			When state change
+			Server send a list of veriKeys
+	*/
+
 		let waitRes = self.state_change_broadcast("HS");
 		match waitRes {
 			RecvType::matrix(m) => {
@@ -124,9 +148,14 @@ impl Client{
 		return Ok(0)
 	}
 
+
 	pub fn key_exchange(&mut self) -> Result<usize, ClientError> {
 
-		// Send Deffie-Helman key
+	/*		 
+			Generate Deffie-Helman key
+			Sign DH key and send
+	*/
+
 		let publicKeyVec = self.publicKey.to_bytes();
 		let signedPublicKey: Signature = self.signKey.sign(&publicKeyVec);
 
@@ -136,7 +165,6 @@ impl Client{
 			Ok(_) => (),
 			Err(_) => return Err(ClientError::SendFailure(1)),
 		};
-
 		// Server says Ok
 		let msg = recv(&self.sender);
 		match msg {
@@ -144,17 +172,19 @@ impl Client{
 			_ => return Err(ClientError::UnexpectedRecv(msg)),
 		};
 
-		// Wait for clients finish sending keys
-		// State change
-		// recieve others' Deffie-Hellman key	
+	/*		 
+			Wait for state change
+			Server recv all DH keys
+			and sends everyone DH key list
+			Create shared keys save as (DH pk, sharedKey)
+	*/
+
 		let waitRes = self.state_change_broadcast("KE");
 		let publicKeys = match waitRes {
 			RecvType::matrix(m) => m,
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
 		println!("{} Recieved other's pk: {:?}", self.ID,  &publicKeys.len());
-		
-		// Create shared keys for each clients
 		for pk in publicKeys {
 			let shared = self.privateKey
 							 .diffie_hellman(
@@ -162,10 +192,6 @@ impl Client{
 							 );
 			match shared {
 				Ok(s) => {
-					/* May run into your own public key 
-					creating share key with yourself
-					It's okay, you can decrypt your share as if you're a peer
-					*/
 					self.shareKeys.insert(pk, s.as_bytes().to_vec());
 				},
 				Err(_) => return Err(ClientError::EncryptionError(1)),
@@ -176,7 +202,14 @@ impl Client{
 	}
 	
 
+
 	pub fn input_sharing(&mut self, input: &Vec<u64>) -> Result<usize, ClientError> {
+
+	/*		 
+			Wait for state change
+			Recv sharing parameters
+			Perform pss
+	*/
 
 		let waitRes = self.state_change_broadcast("IS");
 		let sharingParams = match waitRes {
@@ -189,71 +222,82 @@ impl Client{
 
 		let degreeTwo = sharingParams[0] as usize;
 		let degreeThree = sharingParams[1] as usize;
-		let blockLength = degreeTwo;
 		let prime = sharingParams[2];
 		let rootTwo = sharingParams[3];
 		let rootThree = sharingParams[4];
-		let clientNum = self.shareKeys.len();
-		let blockNum = input.len()/blockLength;
+		let N = self.shareKeys.len();
+		let L = degreeTwo;
+		let B = input.len()/L;
 
-		println!("computing shares with param d2: {:?}, d3: {}, V = B * L = {} * {}, clientNum {}", 
-			degreeTwo, degreeThree, blockNum, blockLength, clientNum);
+		println!("computing shares with param d2: {:?}, d3: {}, V = B * L = {} * {}, N {}", 
+			degreeTwo, degreeThree, B, L, N);
+		
+		// V = B * L
 
 		let mut pss = PackedSecretSharing::new(
-			prime, rootTwo, rootThree, degreeTwo, degreeThree, blockLength, clientNum
+			prime, rootTwo, rootThree, degreeTwo, degreeThree, L, N
 		);
-		let mut resultMatrix = vec![vec![0u8; 0]; clientNum];
-
-
-		for i in 0..blockNum {
+		let mut resultMatrix = vec![vec![0u8; 0]; N];
+		for i in 0..B {
 			let shares = pss.share_u64(
-				&input[blockLength*i..blockLength+blockLength*i]);
-			for j in 0..clientNum {
-				resultMatrix[j].extend((shares[j] as u64).to_le_bytes().to_vec())
-			}
-		}
-		let remainderFg = blockNum * blockLength < input.len();
-		if (remainderFg) {
-			let rest = input.len() - blockNum * blockLength;
-			println!("uneven blockLength V = {} * {} + {:?} = {}", blockNum, blockLength, rest, input.len());
-			let mut pss = PackedSecretSharing::new(
-				prime, rootTwo, rootThree, degreeTwo, degreeThree, rest, clientNum);
-			let shares = pss.share_u64(&input[blockNum * blockLength..input.len()]);
-			for j in 0..clientNum {
+				&input[L*i..L+L*i]);
+			for j in 0..N {
 				resultMatrix[j].extend((shares[j] as u64).to_le_bytes().to_vec())
 			}
 		}
 
-		/* TODO: 
-		 Make sure shares and keys are always in the same order
-		*/
-		println!("raw shares ({} * {})..", resultMatrix.len(), resultMatrix[0].len());
+		// V = B * L + remains
+
+		let remainderFg = B * L < input.len();
+		if (remainderFg) {
+			let rest = input.len() - B * L;
+			
+			println!("uneven L V = {} * {} + {:?} = {}", B, L, rest, input.len());
+			
+			let mut pss = PackedSecretSharing::new(
+				prime, rootTwo, rootThree, degreeTwo, degreeThree, rest, N);
+			let shares = pss.share_u64(&input[B * L..input.len()]);
+			for j in 0..N {
+				resultMatrix[j].extend((shares[j] as u64).to_le_bytes().to_vec())
+			}
+		}
+
+	/* 
+		 	Encrypt shares for each DH sharedKey
+			Send with format: 
+			(pk, Enc(sharedKey, shares))
+	*/
+
+		println!("finished raw shares ({} * {})..", resultMatrix.len(), resultMatrix[0].len());
+		
 		for (i, (pk, shareKey)) in self.shareKeys.iter().enumerate() {
 			
-			// Encrypt with the share key
 			let k = GenericArray::from_slice(&shareKey);
 			let cipher = Aes256Gcm::new(k);
 			let nonce = GenericArray::from_slice(b"unique nonce");
 			let encryptedShares = cipher.encrypt(nonce, resultMatrix[i]
 										.as_slice())
-		    					   		.expect("encryption failure!");			
-			/* Prepend the pubKey of this peer 
-		    so that server know who to forward
-		    */
+		    					   		.expect("encryption failure!");	
 		    let mut msg = Vec::new();
 		    msg.push(pk.clone());
 		    msg.push(encryptedShares);
-
 			match send_vecs(&self.sender, msg) {
 				Ok(_) => continue,
 				Err(_) => return Err(ClientError::SendFailure(1)),
 			};
 		}
-		// Recv clients shares
-		println!("{} recieving shares...", self.ID);
+
+	/* 
+		 	Aggregation stage
+			Loop to collect shares
+			For each shares, Dec(sharedKey, msg)
+			Then add to sum
+	*/
+
+		println!("{} recieving shares back...", self.ID);
 		let mut aggregatedShares = match remainderFg {
-			false => vec![0u128; blockNum],
-			true => vec![0u128; blockNum + 1],
+			false => vec![0u128; B],						// V = B * L
+			true => vec![0u128; B + 1],						// V = B * L + remains
 		};
 		let mut cnt = 0;
 		loop {
@@ -290,19 +334,24 @@ impl Client{
 			 			//println!("aggregatedShares {:?}", aggregatedShares);
 			 			cnt += 1;
 				        println!("{:?} has aggregated {} shares", self.ID, cnt);
-				        if(cnt == clientNum){
-				        	break;
-				        }
 	        	 	},
 	        	 	RecvType::string(s) => println!("--{:?}", s),
 	        	 	_ => return Err(ClientError::UnexpectedRecv(msg)),
 	        	 };
 
 	        };
+			if(cnt == N){
+	        	break;
+	        }
 		}
 
-		self.state_change_broadcast("AG");
+	/* 
+		 	Server has forwarded N*N shares
+		 	Tells clients to aggregate
+		 	Send aggregated vector
+	*/
 
+		self.state_change_broadcast("AG");
 		let mut asBytes = Vec::new();
 		println!("{} sending aggregatedShares {:?}", self.ID, aggregatedShares.len());
 		for a in aggregatedShares {
@@ -320,24 +369,26 @@ impl Client{
 		println!("OK from input_sharing");
 	}
 
-	pub fn state_change_broadcast(&self, curState: &str) -> RecvType {
 
-		let subscriber = self.context.socket(zmq::SUB).unwrap();
-		assert!(subscriber.connect(&self.subPort).is_ok());
-
+	pub fn state_change_broadcast(&mut self, curState: &str) -> RecvType {
 		println!("{} waiting in {} ....", self.ID, curState);
-		subscriber.set_subscribe(curState.as_bytes()).unwrap();
-		
+		self.subscriber.set_subscribe(curState.as_bytes()).unwrap();
 		loop {
-			let mut item = [subscriber.as_poll_item(zmq::POLLIN)];
+			let mut item = [self.subscriber.as_poll_item(zmq::POLLIN)];
 	        zmq::poll(&mut item, 2).unwrap();
 	        if item[0].is_readable() {
-	        	println!("state change {}", curState);
-	        	return recv_broadcast(&subscriber)
+	        	match recv_broadcast(&self.subscriber, curState) {
+	        		Ok(rt) => {
+	        			println!("state change {} for {}", curState, self.ID);
+	        			self.subscriber = self.context.socket(zmq::SUB).unwrap();
+						assert!(self.subscriber.connect(&self.addr2).is_ok());
+	        			return rt
+	        		},
+	        		Err(_) => continue,
+	        	}; 
 	        }
 		}
 	}
-
 }
 
 
@@ -368,5 +419,9 @@ fn read_le_u64(input: Vec<u8>) -> Vec<u64> {
         }
     }
     res
+}
+
+fn task(tx: mpsc::Sender<RecvType>) -> Result<usize, ClientError> {
+	unimplemented!();
 }
 

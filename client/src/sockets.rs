@@ -34,7 +34,7 @@ pub fn recv(socket: &Socket) -> RecvType {
 	}
 }
 
-pub fn recv_broadcast(socket: &Socket) -> RecvType {
+pub fn recv_broadcast(socket: &Socket, topic: &str) -> Result<RecvType, ()> {
 	let mut data;
 	match socket.recv_multipart(0) {
 		Ok(msg) => {
@@ -42,17 +42,18 @@ pub fn recv_broadcast(socket: &Socket) -> RecvType {
 			},
 		Err(_) => panic!("Failed to recieve braoadcast."),
 	}
-	data.remove(0);
+	let removed = data.remove(0);
+	if (removed != topic.as_bytes()) {
+		println!("{:?}, {:?}", str::from_utf8(&removed), topic);
+		return Err(());
+	}
 	if data.len() == 1 {
 		match std::str::from_utf8(&data[0]) {
-			Ok(s) => {
-				return RecvType::string(s.to_string());
-			},
-			Err(_) => return RecvType::bytes(data.pop().unwrap()),
+			Ok(s) => return Ok(RecvType::string(s.to_string())),
+			Err(_) => return Ok(RecvType::bytes(data.pop().unwrap())),
 		};
-		return RecvType::bytes(data.pop().unwrap())
 	} else {
-		return RecvType::matrix(data);
+		return Ok(RecvType::matrix(data));
 	}
 }
 

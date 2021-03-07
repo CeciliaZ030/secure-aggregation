@@ -270,7 +270,7 @@ impl Client{
 	/* 
 		 	Aggregation stage
 			Loop to collect shares
-			For each shares: Dec(sharedKey, msg)
+			For each shares, Dec(sharedKey, msg)
 			Then add to sum
 	*/
 
@@ -325,8 +325,13 @@ impl Client{
 	        }
 		}
 
-		self.state_change_broadcast("AG");
+	/* 
+		 	Server has forwarded N*N shares
+		 	Tells clients to aggregate
+		 	Send aggregated vector
+	*/
 
+		self.state_change_broadcast("AG");
 		let mut asBytes = Vec::new();
 		println!("{} sending aggregatedShares {:?}", self.ID, aggregatedShares.len());
 		for a in aggregatedShares {
