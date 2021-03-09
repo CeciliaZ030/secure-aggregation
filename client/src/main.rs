@@ -13,8 +13,7 @@ fn main() {
 	
 	let myName = &args[1];
 	let vectorSize = args[2].parse::<usize>().unwrap();
-    let context = zmq::Context::new();
-    let mut client = Client::new(&myName, context, "8888", "9999");
+    let mut client = Client::new(&myName, vectorSize, "8888", "9999");
 
     //Key Exhcnage 
     match client.handshake(){
@@ -34,7 +33,9 @@ fn main() {
     	Ok(_) => (),
     	Err(e) => println!("{:?}", e),
     };	
-	client.input_sharing(&input);
-}
+    match client.aggregation(){
+        Ok(_) => (),
+        Err(e) => println!("{:?}", e),
+    };}
 
 

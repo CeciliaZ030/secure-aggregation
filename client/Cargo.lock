@@ -115,6 +115,7 @@ dependencies = [
  "p256",
  "packed_secret_sharing",
  "rand_core",
+ "signature",
  "zmq",
 ]
 

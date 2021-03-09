@@ -4,16 +4,23 @@ use std::time::Duration;
 use std::convert::TryInto;
 use std::sync::*;
 use std::thread;
+use std::thread::sleep;
 
 use zmq::SNDMORE;
 use zmq::Message;
 
-use rand_core::{OsRng};
+use rand_core::OsRng;
+use signature::Signature as _;
 use p256::{
+	NistP256,
 	EncodedPoint,
 	ecdh::{EphemeralSecret, SharedSecret},
-    ecdsa::{SigningKey, Signature, signature::Signer, VerifyKey},
+    ecdsa::{
+    	SigningKey, Signature, signature::Signer, 
+    	VerifyKey, signature::Verifier
+    }
 };
+
 use aes_gcm::Aes256Gcm; // Or `Aes128Gcm`
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::aead::{Aead, NewAead};
@@ -33,17 +40,25 @@ pub enum ClientError {
 }
 
 
+#[derive(Debug, Clone, Copy)]
+pub struct Param {
+	degree2: usize,
+	degree3: usize,
+	prime: u128,
+	root2: u128,
+	root3: u128,
+	remainderFg: bool,
+}
+
+
 pub struct Client{
 
+	pub ID: String,						//Unique ID that is field element
 	context: zmq::Context,
 	sender: zmq::Socket,
-	subscriber: zmq::Socket,
-	addr2: String,
 
-	rx: mpsc::Receiver<RecvType>,
-	child :thread::JoinHandle<Result<usize, ClientError>>,
-
-	pub ID: String,						//Unique ID that is field element
+	subThread :thread::JoinHandle<Result<usize, ClientError>>,
+	buffer: Arc<RwLock<HashMap<Vec<u8>, RecvType>>>,
 
 	signKey: SigningKey,				//Authentification
 	veriKey: VerifyKey,
@@ -53,14 +68,18 @@ pub struct Client{
 
 	clientVerikeys: Vec<Vec<u8>>,
 	shareKeys: HashMap<Vec<u8>, Vec<u8>>, // Array of (pubKey of peer, shareKey with peer)
+
+	vectorSize: usize,
+	param: Option<Param>,
 }
 
 impl Client{
 	
-	pub fn new(ID: &str, context: zmq::Context, port1: &str, port2: &str) -> Client{
+	pub fn new(ID: &str, vectorSize: usize, port1: &str, port2: &str) -> Client{
 
+    	let context = zmq::Context::new();
 		let sender = context.socket(zmq::DEALER).unwrap();
-		let subscriber = context.socket(zmq::SUB).unwrap();
+		// let subscriber1 = context.socket(zmq::SUB).unwrap();
 
 		let mut addr1: String = "tcp://localhost:".to_owned();
 		let mut addr2: String = "tcp://localhost:".to_owned();
@@ -69,40 +88,45 @@ impl Client{
 		addr2.push_str(port2);
 		sender.set_identity(ID.as_bytes());
 		assert!(sender.connect(&addr1).is_ok());
-		assert!(subscriber.connect(&addr2).is_ok());
-		println!("set_conflate");
+		// assert!(subscriber1.connect(&addr2).is_ok());
 
-		let (tx, rx): (mpsc::Sender<RecvType>, mpsc::Receiver<RecvType>) = mpsc::channel();
-
-    	let child = thread::spawn(move || {
-    		task(tx)
+		// let (tx, rx): (mpsc::Sender::<RecvType>, mpsc::Receiver::<RecvType>) = mpsc::channel();
+		let ctx = context.clone();
+		let buffer = Arc::new(RwLock::new(HashMap::<Vec<u8>, RecvType>::new()));
+		let bf = buffer.clone();
+    	let subThread = thread::spawn(move || {
+    		let subscriber = ctx.socket(zmq::SUB).unwrap();
+			assert!(subscriber.connect(&addr2).is_ok());
+			subscriber.set_subscribe("".as_bytes());
+			return sub_task(subscriber, bf)
 	    });
 
-		let signKey = SigningKey::random(&mut OsRng);
-		let veriKey = VerifyKey::from(&signKey);
-		let privateKey = EphemeralSecret::random(&mut OsRng);
-		let publicKey = EncodedPoint::from(&privateKey);
+	    let signKey = SigningKey::random(&mut OsRng);
+	    let privateKey = EphemeralSecret::random(&mut OsRng);
 
 		Client {
 
 			context: context,
 			sender: sender,
-			subscriber: subscriber,
-			addr2: addr2,
+			//subscriber: subscriber1,
 
-			rx: rx,
-			child: child,
+			// rx: rx,
+			subThread: subThread,
+			buffer: buffer,
 
 			ID: ID.to_string(),
 
+			veriKey: VerifyKey::from(&signKey),
 			signKey: signKey,
-			veriKey: veriKey,
 
+			publicKey: EncodedPoint::from(&privateKey),
 			privateKey: privateKey,
-			publicKey: publicKey,
 
 			clientVerikeys: Vec::<Vec<u8>>::new(),
 			shareKeys: HashMap::new(),
+
+			vectorSize: vectorSize,
+			param: None,
 		}
 	}
 
@@ -110,7 +134,7 @@ impl Client{
 	pub fn handshake(&mut self) -> Result<usize, ClientError> {
 
 	/*
-			Client say Hello
+			Client say Helloo
 			Server send unique signKey
 			Generate veriKey from signKey
 	*/
@@ -210,7 +234,7 @@ impl Client{
 			Recv sharing parameters
 			Perform pss
 	*/
-
+		assert!(input.len() == self.vectorSize);
 		let waitRes = self.state_change_broadcast("IS");
 		let sharingParams = match waitRes {
 			RecvType::bytes(m) => {
@@ -220,22 +244,26 @@ impl Client{
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
 
-		let degreeTwo = sharingParams[0] as usize;
-		let degreeThree = sharingParams[1] as usize;
-		let prime = sharingParams[2];
-		let rootTwo = sharingParams[3];
-		let rootThree = sharingParams[4];
+		let mut param = Param {
+			degree2: sharingParams[0] as usize,
+			degree3: sharingParams[1] as usize,
+			prime: sharingParams[2],
+			root2: sharingParams[3],
+			root3: sharingParams[4],
+			remainderFg: false,
+		};
+		self.param = Some(param);
 		let N = self.shareKeys.len();
-		let L = degreeTwo;
+		let L = param.degree2;
 		let B = input.len()/L;
 
 		println!("computing shares with param d2: {:?}, d3: {}, V = B * L = {} * {}, N {}", 
-			degreeTwo, degreeThree, B, L, N);
+			param.degree2, param.degree3, B, L, N);
 		
 		// V = B * L
 
 		let mut pss = PackedSecretSharing::new(
-			prime, rootTwo, rootThree, degreeTwo, degreeThree, L, N
+			param.prime, param.root2, param.root3, param.degree2, param.degree3, L, N
 		);
 		let mut resultMatrix = vec![vec![0u8; 0]; N];
 		for i in 0..B {
@@ -248,14 +276,8 @@ impl Client{
 
 		// V = B * L + remains
 
-		let remainderFg = B * L < input.len();
-		if (remainderFg) {
-			let rest = input.len() - B * L;
-			
-			println!("uneven L V = {} * {} + {:?} = {}", B, L, rest, input.len());
-			
-			let mut pss = PackedSecretSharing::new(
-				prime, rootTwo, rootThree, degreeTwo, degreeThree, rest, N);
+		param.remainderFg = B * L < input.len();
+		if (param.remainderFg) {
 			let shares = pss.share_u64(&input[B * L..input.len()]);
 			for j in 0..N {
 				resultMatrix[j].extend((shares[j] as u64).to_le_bytes().to_vec())
@@ -268,7 +290,7 @@ impl Client{
 			(pk, Enc(sharedKey, shares))
 	*/
 
-		println!("finished raw shares ({} * {})..", resultMatrix.len(), resultMatrix[0].len());
+		println!("finished pss: (#Clients * sharesLen) = ({} * {})..", resultMatrix.len(), resultMatrix[0].len());
 		
 		for (i, (pk, shareKey)) in self.shareKeys.iter().enumerate() {
 			
@@ -283,19 +305,26 @@ impl Client{
 		    msg.push(encryptedShares);
 			match send_vecs(&self.sender, msg) {
 				Ok(_) => continue,
-				Err(_) => return Err(ClientError::SendFailure(1)),
+				Err(_) => return Err(ClientError::SendFailure(2)),
 			};
 		}
+		Ok(2)
+	}
 
+
+	pub fn aggregation(&mut self) -> Result<usize, ClientError> {
 	/* 
 		 	Aggregation stage
 			Loop to collect shares
 			For each shares, Dec(sharedKey, msg)
 			Then add to sum
 	*/
+		let param = self.param.unwrap();
+		let N = self.shareKeys.len();
+		let L = param.degree2;
+		let B = self.vectorSize/L;
 
-		println!("{} recieving shares back...", self.ID);
-		let mut aggregatedShares = match remainderFg {
+		let mut aggregatedShares = match param.remainderFg {
 			false => vec![0u128; B],						// V = B * L
 			true => vec![0u128; B + 1],						// V = B * L + remains
 		};
@@ -327,19 +356,20 @@ impl Client{
 			 					return Err(ClientError::EncryptionError(2));
 			 				}
 			 			};
-			 			//println!("plaintext {:?}", plaintext);
 			 			for i in 0..plaintext.len() {
-			 				aggregatedShares[i] = (aggregatedShares[i] + plaintext[i] as u128) % prime;
+			 				aggregatedShares[i] = (aggregatedShares[i] + plaintext[i] as u128) % param.prime;
 			 			}
-			 			//println!("aggregatedShares {:?}", aggregatedShares);
 			 			cnt += 1;
 				        println!("{:?} has aggregated {} shares", self.ID, cnt);
 	        	 	},
+	        	 	// Reciep from server
+	        	 	// 	"Input from client a to client b is successfull"
 	        	 	RecvType::string(s) => println!("--{:?}", s),
 	        	 	_ => return Err(ClientError::UnexpectedRecv(msg)),
 	        	 };
 
 	        };
+	        // stop when recv shares from each peer
 			if(cnt == N){
 	        	break;
 	        }
@@ -350,7 +380,6 @@ impl Client{
 		 	Tells clients to aggregate
 		 	Send aggregated vector
 	*/
-
 		self.state_change_broadcast("AG");
 		let mut asBytes = Vec::new();
 		println!("{} sending aggregatedShares {:?}", self.ID, aggregatedShares.len());
@@ -369,29 +398,46 @@ impl Client{
 		println!("OK from input_sharing");
 	}
 
-
-	pub fn state_change_broadcast(&mut self, curState: &str) -> RecvType {
+	pub fn state_change_broadcast(&self, curState: &str) -> RecvType {
+	/*
+		When state change
+		loops till recieving information from subscriber buffer
+	*/
 		println!("{} waiting in {} ....", self.ID, curState);
-		self.subscriber.set_subscribe(curState.as_bytes()).unwrap();
+		let curState = curState.as_bytes().as_ref();
 		loop {
-			let mut item = [self.subscriber.as_poll_item(zmq::POLLIN)];
-	        zmq::poll(&mut item, 2).unwrap();
-	        if item[0].is_readable() {
-	        	match recv_broadcast(&self.subscriber, curState) {
-	        		Ok(rt) => {
-	        			println!("state change {} for {}", curState, self.ID);
-	        			self.subscriber = self.context.socket(zmq::SUB).unwrap();
-						assert!(self.subscriber.connect(&self.addr2).is_ok());
-	        			return rt
-	        		},
-	        		Err(_) => continue,
-	        	}; 
-	        }
+			match self.buffer.read() {
+				Ok(guard) => {
+					match guard.get(curState) {
+						Some(m) => return m.clone(),
+						None => sleep(Duration::from_millis(50)),
+					}
+				},
+				Err(_) => return RecvType::string("".to_string()),
+			};
 		}
 	}
 }
 
-
+fn sub_task(subscriber: zmq::Socket, 
+	buffer: Arc<RwLock<HashMap<Vec<u8>, RecvType>>>) -> Result<usize, ClientError> {
+    /*
+		Subscriber thread
+		Keep recieving from socket
+		Consume msg emmited previously, add to buffer if it's new
+    */
+    loop {
+        let (topic, data) = recv_broadcast1(&subscriber);
+        if buffer.read().unwrap().contains_key(&topic) {
+            continue;
+        }
+        match buffer.write() {
+            Ok(mut guard) => guard.insert(topic, data),
+            Err(_) => return Err(ClientError::MutexLockFail(0)),
+        };
+    }
+    Ok(0)
+}
 
 fn read_le_u128(input: Vec<u8>) -> Vec<u128> {
     let mut res = Vec::<u128>::new();
@@ -421,7 +467,5 @@ fn read_le_u64(input: Vec<u8>) -> Vec<u64> {
     res
 }
 
-fn task(tx: mpsc::Sender<RecvType>) -> Result<usize, ClientError> {
-	unimplemented!();
-}
+
 

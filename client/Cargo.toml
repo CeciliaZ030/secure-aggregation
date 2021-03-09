@@ -22,3 +22,6 @@ features = ["ecdh", "ecdsa"]
 
 [dependencies.packed_secret_sharing]
 path = "../packed_secret_sharing"
+
+[dependencies.signature]
+version = "1.2.2"

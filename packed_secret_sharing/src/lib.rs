@@ -7,21 +7,6 @@ pub mod packed;
 
 /** I/O util **/
 
-// pub fn read_input_to_BigUint(p : &Path)  -> io::Result<Vec<BigUint>> {
-//     let f = File::open(p)?;
-//     let f = BufReader::new(f);
-
-//     let mut v: Vec<BigUint> = Vec::new();
-
-//     for line in f.lines() {
-//         for i in line.unwrap().split(" "){
-//             let temp = i.trim().parse::<u64>().unwrap();
-//             v.push(temp.into_biguint().unwrap());
-//         }
-//     }
-//     Ok(v)
-// }
-
 pub fn read_input_to_u128(p : &Path)  -> io::Result<Vec<u128>> {
     let f = File::open(p)?;
     let f = BufReader::new(f);

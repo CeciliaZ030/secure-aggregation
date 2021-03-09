@@ -27,7 +27,9 @@ impl PackedSecretSharing {
 	pub fn new(prime: u128, root2: u128, root3:u128, 
 			   degree2: usize, degree3: usize, num_secrets: usize, num_shares: usize) -> PackedSecretSharing {
 
-		// degree must allow num_secrets to uniquely define the poly
+		assert!(num_secrets <= degree2);
+		assert!(degree2 <= num_shares);
+		assert!(num_shares <= degree3);
 
 		let mut rootTable2 = vec![0u128; degree2];
 		for i in 0..degree2 {
@@ -58,7 +60,8 @@ impl PackedSecretSharing {
 	}
 
 /*
-	secret = [s0, ...., s512]
+
+	secret = [s0, ...., s5]
 		|
 	FFT2(input) --> with 512th root
 		|
@@ -109,8 +112,8 @@ impl PackedSecretSharing {
 		}
 
 		// share with radix2_DFT
-		let shares = ntt::transform3(poly, &self.prime, &self.rootTable3);
-		//println!("len {:?}, first share {:?}", shares.len(), shares[0]);
+		let mut shares = ntt::transform3(poly, &self.prime, &self.rootTable3);
+		shares.split_off(self.num_shares);
 
 		shares
 	}
@@ -137,19 +140,33 @@ impl PackedSecretSharing {
 			poly.push(0u128);
 		}
 
-		// share with radix2_DFT
-		let shares = ntt::transform3(poly, &self.prime, &self.rootTable3);
-		//println!("len {:?}, first share {:?}", shares.len(), shares[0]);
+		// share with radix3_DFT
+		let mut shares = ntt::transform3(poly, &self.prime, &self.rootTable3);
+		shares.split_off(self.num_shares);
 
 		shares
 	}
 
-	pub fn reconstruct(&mut self, shares_point: &Vec<u128>, shares_val: &Vec<u128>) -> Vec<u128> {
+	// Provide share points (rootThrees) mannually
+	pub fn reconstruct_with_points(&mut self, shares_point: &Vec<u128>, shares_val: &Vec<u128>) -> Vec<u128> {
 
 		// must have more shares than degree2 but less than the number initialized
 		assert!(shares_point.len() >= self.degree2 && shares_point.len() <= self.num_shares);
 		assert!(shares_point.len() == shares_val.len());
 
+		self.rootTable2.split_off(self.num_secrets);
+		lagrange_interpolation(&shares_point, &shares_val, &self.rootTable2, &self.prime)
+
+	}
+
+	// Comput rootThrees
+	// Shares should in order
+	pub fn reconstruct(&mut self, shares_val: &Vec<u128>) -> Vec<u128> {
+	    let mut shares_point = Vec::new();
+	    for i in 0..self.degree2 {
+	    	shares_point.push(self.root3.modpow(&(i as u128), &self.prime));
+	    }
+	    assert!(shares_val.len() >= shares_point.len());
 		self.rootTable2.split_off(self.num_secrets);
 		lagrange_interpolation(&shares_point, &shares_val, &self.rootTable2, &self.prime)
 
