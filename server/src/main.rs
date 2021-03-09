@@ -6,7 +6,7 @@ use std::env;
 use zmq;
 use server::*;
 use server::param::*;
-use server::workers::*;
+use server::worker::*;
 
 fn main() {
 

@@ -4,6 +4,9 @@ use zmq::SNDMORE;
 use std::str;
 use std::thread;
 
+use std::thread::sleep;
+use std::time::Duration;
+
 #[derive(Debug)]
 pub enum RecvType {
 	bytes(Vec<u8>),
@@ -73,13 +76,14 @@ where
     T: Into<Message> + std::clone::Clone + std::fmt::Debug,
 {
 	println!("pushing {}", topic);
-	for _ in 0..1000 {
+	for _ in 0..100 {
 		socket.send(topic.as_bytes(), zmq::SNDMORE);
 		match socket.send(data.clone(), 0){
 	        Ok(T) => continue,
 	        Err(Error) => return Err(0),
 		 };
 	}
+	sleep(Duration::from_millis(10));
 	return Ok(0)
 }
 
@@ -89,12 +93,13 @@ where
     T: Into<Message>,
 {
 	//println!("+++++++++++++++++++++++++ {:?} data {:?}", topic, data);
-    for _ in 0..1000 {
+    for _ in 0..100 {
 		socket.send(topic.as_bytes(), zmq::SNDMORE);
 		match socket.send_multipart(data.clone(), 0){
 	        Ok(T) => continue,
 	        Err(Error) => return Err(0),
 		 };
 	}
+	sleep(Duration::from_millis(10));
 	return Ok(0)
 }
