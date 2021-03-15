@@ -16,14 +16,18 @@ fn main() {
     let context = zmq::Context::new();
     let (tx, rx) = mpsc::channel();
     let mut param = Param::new(
-            3073700804129980417u128, 
-            1414118249734601779u128, 20,
-            308414859194273485u128, 15,
+            3073700804129980417u128,                // Prime
+            1414118249734601779u128, 20,            // Root2, 2^x degree
+            308414859194273485u128, 15,             // Root3, 3^x degree
         );
     let mut server = Arc::new(Server::new(
         args[1].parse::<usize>().unwrap(),          // MAX clients
-        args[2].parse::<usize>().unwrap(), param)   // Vecor length
-    );
+        args[2].parse::<usize>().unwrap(),          // Vector Length
+        args[3].parse::<usize>().unwrap(),          // Dropouts
+        args[4].parse::<usize>().unwrap(),          // Corrupted Parties
+        args[5].parse::<bool>().unwrap(),           // Malicious Flag
+        param
+    ));
 
     // Server Thread
     /*
@@ -38,13 +42,16 @@ fn main() {
     // State Thread
     /*
         Recieves information from worker threads,
-        constantly keeps track of count,
+        constantly keeps track of count and timer,
         changes state once enough client have participated.
     */
     let ctx = context.clone();
     let svr = server.clone();
     let stateThread = thread::spawn(move || {
-        svr.state_task(ctx, 9999, rx);
+        match svr.state_task(ctx, 9999, rx) {
+            Ok(_) => (),
+            Err(e) => println!("{:?}", e),
+        };
     });
 
     // Worker Thread
@@ -63,7 +70,10 @@ fn main() {
         let svr = server.clone();
     	let child = thread::spawn(move || {
     		println!("spawning {:?}", i);
-	        svr.worker_task(worker);
+            match svr.worker_task(worker) {
+                Ok(_) => (),
+                Err(e) => println!("{:?}", e),
+            };
 	    });
 	    workerThreadPool.push(child);
     }

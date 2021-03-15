@@ -93,7 +93,7 @@ where
     T: Into<Message>,
 {
 	//println!("+++++++++++++++++++++++++ {:?} data {:?}", topic, data);
-    for _ in 0..100 {
+    for _ in 0..1004 {
 		socket.send(topic.as_bytes(), zmq::SNDMORE);
 		match socket.send_multipart(data.clone(), 0){
 	        Ok(T) => continue,

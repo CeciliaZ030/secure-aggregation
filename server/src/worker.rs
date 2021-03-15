@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::str;
-use std::thread;
+use std::{thread, time};
 use std::sync::*;
 use std::convert::TryInto;
+use std::time::Duration;
 
 use zmq::Message;
 use p256::ecdsa::VerifyKey;
@@ -18,7 +19,7 @@ pub enum WorkerError {
 	UnexpectedFormat(usize),
 	UnknownState(usize),
 	WrongState(usize),
-	SharingFail(usize)
+	SharingFail(usize),
 }
 
 #[derive(Debug)]
@@ -29,6 +30,8 @@ pub enum ServerError {
 	FailPublish(usize),
 	UnexpectedField(usize),
 	UnknownState(usize),
+	TimerFail(usize),
+	ThreadSenderFail(usize),
 }
 
 pub struct Worker {
@@ -51,27 +54,75 @@ impl Worker {
 	}
 }
 
-pub fn format_clientData(datas: &HashMap<Vec<u8>, Profile>, 
-    order: &Vec<Vec<u8>>, field: &str) -> Result<Vec<Vec<u8>>, ServerError> {
+pub fn timer_task(receiver: mpsc::Receiver<usize>, timesUp: Arc<RwLock<bool>>) -> Result<usize, ServerError> {
+	let mut T = 0;
+	loop {
+		if T == 0  {
+			T = match receiver.recv() {
+				Ok(t) => t,
+				Err(_) => {println!("timer recv"); return Err(ServerError::TimerFail(0))},
+			};
+			println!("Start {}", T);
+		} else {
+			let mut i = 0;
+			while i < T/10 {
+				match receiver.try_recv() {
+					Ok(t) => {
+						T = t;
+						println!("Restart {}", T);
+						break
+					},
+					Err(_) =>  continue,//{println!("try_recv"); return Err(ServerError::TimerFail(0))},
+				};
+				thread::sleep(Duration::from_millis(10));
+				i += 1;
+			}
+			if i == T/10 {
+				T = 0;
+				match timesUp.write() {
+					Ok(mut guard) => *guard = true,
+					Err(_) => (),
+				};
+			}
+		}
+	}
+}
+
+pub fn format_clientData(datas: &mut HashMap<Vec<u8>, Profile>, 
+    order: &mut Vec<Vec<u8>>, field: &str) -> Result<Vec<Vec<u8>>, ServerError> {
+    /*
+		Format to send veriKey or publicKey to clients with clientList order
+		Remove from profiles and list if pk is missing
+    */
     let mut vecs = Vec::new();
-    for key in order {
-        let data = datas.get(key);
-        match data {
+    let mut dropouts = Vec::new();
+    for (i, key) in order.iter().enumerate()  {
+        match datas.get(key) {
         	Some(d) => {
-		        let res = match field {
-		        	"veriKey" => VerifyKey::to_encoded_point(&d.veriKey, true)
-		        					.to_bytes()
-		        					.to_vec(),
-		            "publicKey" => d.publicKey.clone(),
+		        match field {
+		        	"veriKey" => {
+		        		let vk = VerifyKey::to_encoded_point(&d.veriKey, true).to_bytes().to_vec();
+		        		vecs.push(vk)
+		        	},
+		            "publicKey" => {
+		            	if d.publicKey.len() == 0 {
+		            		dropouts.push(i);
+		            	} else {
+		            		vecs.push(d.publicKey.clone());
+		            	}
+		            },
 		            _ => return Err(ServerError::UnexpectedField(0)),
 		        };
-		        vecs.push(res);
         	},
         	None => {
         		return Err(ServerError::MissingClient(0))
         	},
         }
-    } 
+    }
+   	for i in dropouts {
+   		let key = order.remove(i);
+   		datas.remove(&key);
+   	}
     return Ok(vecs)
 }
 

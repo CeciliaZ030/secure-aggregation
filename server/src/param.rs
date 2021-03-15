@@ -35,8 +35,9 @@ impl Param {
 			rootThrees[D3 - i] = temp;
 		}
 
-		println!("{:?}", rootTwos);
-		println!("{:?}", rootThrees);
+		println!("prime {:?}", P);
+		println!("rootTwos {:?}, {}", rootTwos, D2);
+		println!("rootThrees {:?}, {}", rootThrees, D3);
 
 		Param {
 			P: P,
@@ -55,9 +56,10 @@ impl Param {
 			useRoot3: 0u128,
 		}
 	}
-	pub fn calculate(&mut self, numClients: usize, vectorSize: usize){
+	pub fn calculate(&mut self, 
+		numClients: usize, vectorSize: usize, dropouts: usize, corruption: usize, malicious: bool){
 		
-		let mut reconstructLimit = numClients/3;
+		let mut reconstructLimit = 16;
 		let numCorrupted = numClients/6;
 
 		// find the nearest exponent of two
@@ -70,7 +72,7 @@ impl Param {
 			n *= 2;
 			power2 += 1;
 		}
-		power2 -= 1;
+		//power2 -= 1;
 		self.useDegree2 = 2usize.pow(power2 as u32);
 		self.useRoot2 = self.rootTwos[power2];
 		println!("power2 {:?}, reconstruction limit {:?}", power2, reconstructLimit);
@@ -86,7 +88,7 @@ impl Param {
 			power3 += 1;
 		}
 		self.useDegree3 = 3usize.pow(power3 as u32);
-		self.useRoot3 = self.rootTwos[power3];
+		self.useRoot3 = self.rootThrees[power3];
 		println!("power3 {:?}", power3);
 
 		// blockLength <= numClient/3

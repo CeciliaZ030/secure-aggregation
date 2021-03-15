@@ -46,22 +46,25 @@ pub struct Server {
 	clientList: RwLock<Vec<Vec<u8>>>,					// array of ID
 	clientProfiles: RwLock<HashMap<Vec<u8>, Profile>>,	// key = ID, value = Profile
 	keyList: RwLock<HashMap<Vec<u8>, Vec<u8>>>,			// key = pubKey, value = ID for input sharing retrival
+	dropouts: Mutex<Vec<Vec<bool>>>,
 	shares: Mutex<Vec<Vec<u64>>>,
 }
 
 
 impl Server {
 
-	pub fn new(maxClients: usize, vectorSize: usize, mut param: Param) -> Server {
-		param.calculate(maxClients, vectorSize);
+	pub fn new(maxClients: usize, 
+		vectorSize: usize, dropouts: usize, corruption: usize, malicious: bool, mut param: Param) -> Server {
+		param.calculate(maxClients, vectorSize, dropouts, corruption, malicious);
 		Server {
-			STATE: RwLock::new(0usize),
+			STATE: RwLock::new(1usize),
 			MAX: maxClients,
 			V: vectorSize,
 			param: param,
 			clientList: RwLock::new(Vec::new()),
 			clientProfiles: RwLock::new(HashMap::<Vec<u8>, Profile>::new()),
 			keyList: RwLock::new(HashMap::<Vec<u8>, Vec<u8>>::new()),
+			dropouts: Mutex::new(Vec::<Vec<bool>>::new()),
 			shares: Mutex::new(Vec::new()),
 		}
 	}
@@ -93,49 +96,60 @@ impl Server {
 			.bind(&format!("tcp://*:{:?}", port2))
 			.is_ok());
 
+		let timesUp = Arc::new(RwLock::new(false));
+		let tu = timesUp.clone();
+	    let (timerTx, timerRx) = mpsc::channel();
+	    let timer = thread::spawn(move || {
+	        match timer_task(timerRx, tu) {
+	            Ok(_) => (),
+	            Err(e) => println!("{:?}", e),
+	        };
+	    });
+		timerTx.send(100000);
+
 		let mut recvCnt = 0;
 		let mut finalResult;
 		loop {
 			let mut stateGuard;
-			let r = threadReciever.recv();
-			println!("loop recv {:?}", r);
-			match r {
-				Ok(alarm) => {
+			match threadReciever.recv() {
+				Ok(notification) => {
 					/* worker thread send stateNum 
 					when finish processing one client
 					*/
-					println!("Server mpsc recieved alarm {:?}, cnt {}", alarm, recvCnt);
+					println!("Server mpsc recieved notification {:?}, cnt {}", notification, recvCnt+1);
 					stateGuard = self.STATE.write().unwrap();
-					if alarm == *stateGuard {
+					if notification == *stateGuard {
 						recvCnt += 1;
-					}
+					} 
 				},
-				Err(_) => {
-					continue;
-				},
+				Err(_) => continue,
 			}
 			/* when finished client num exceed MAX
 			initiate state change
 			*/
-			if (*stateGuard != 2 && recvCnt >= self.MAX) || (*stateGuard == 2 && recvCnt >= self.MAX*self.MAX) {
-				
-				let profilesGuard = match self.clientProfiles.write() {
+			let tu = (*timesUp.read().unwrap()).clone();
+			if tu || (*stateGuard != 3 && recvCnt >= self.MAX) || (*stateGuard == 3 && recvCnt >= self.MAX*self.MAX) {
+				println!("timesUp {:?}", tu);
+				let mut profilesGuard = match self.clientProfiles.write() {
 					Ok(mut guard) => guard,
 					Err(_) => return Err(ServerError::MutexLockFail(0)),
 				}; 
-				let listGuard = match self.clientList.write() {
+				let mut listGuard = match self.clientList.write() {
 					Ok(mut guard) => guard,
 					Err(_) => return Err(ServerError::MutexLockFail(0)),
 				};
 				let res = match *stateGuard {
-					0 => publish_vecs(
-							&publisher, 
-							format_clientData(&(*profilesGuard), &(*listGuard), "veriKey").unwrap(), 
-							"HS"),
 					1 => {
 						publish_vecs(
+							&publisher, 
+							format_clientData(&mut (*profilesGuard), &mut (*listGuard), "veriKey").unwrap(), 
+							"HS");
+						timerTx.send(100000)
+					},
+					2 => {
+						publish_vecs(
 							&publisher,
-							format_clientData(&(*profilesGuard), &(*listGuard), "publicKey").unwrap(), 
+							format_clientData(&mut (*profilesGuard), &mut (*listGuard), "publicKey").unwrap(), 
 							"KE");
 						let sharingParams = self.param.send();
 						println!("sharingParams {:?}", sharingParams);
@@ -143,26 +157,40 @@ impl Server {
 						for sp in sharingParams {
 							spBytes.extend(sp.to_le_bytes().to_vec());
 						}
-						publish(&publisher, spBytes, "IS")
+						match self.dropouts.lock() {
+							Ok(mut guard) => *guard = vec![vec![false; (*listGuard).len()]],
+							Err(_) => return Err(ServerError::MutexLockFail(0)),
+						}
+						publish(&publisher, spBytes, "IS");
+						timerTx.send(100000)
 					},
-					2 => publish(&publisher, "Please send your aggregated shares.", "AG"),
 					3 => {
+						publish(&publisher, "Please send your aggregated shares.", "AG");
+						timerTx.send(100000)
+					},
+					4 => {
+						println!("recv Aggregated Shares {:?}", self.shares.lock().unwrap());
 						finalResult = self.reconstruction();
 						break;
-						Ok(0)
+						Ok(())
 					},
-					_ => Err(0),
+					_ => Ok(()),
 				};
 				match res {
 					Ok(_) => {
 						*stateGuard += 1;
 						println!("Server: STATE change from {:?} to {:?}", *stateGuard-1, *stateGuard);
 						recvCnt = 0;
+						match timesUp.write() {
+							Ok(mut guard) => *guard = false,
+							Err(_) => return Err(ServerError::MutexLockFail(0)),
+						}
 					},
-					Err(_) => return Err(ServerError::FailPublish(0)),
+					Err(_) => return Err(ServerError::ThreadSenderFail(0)),
 				};
 			}
 		}
+		println!("{:?}", finalResult);
 		return Ok(0)
 	}
 
@@ -177,10 +205,10 @@ impl Server {
 			let msg = recv(&worker.dealer);
 
 			match *(self.STATE.read().unwrap()) {
-				0 => self.handshake(&worker, clientID, msg),
-				1 => self.key_exchange(&worker, clientID, msg),
-				2 => self.input_sharing(&worker, clientID, msg),
-				3 => self.shares_collection(&worker, clientID, msg),
+				1 => self.handshake(&worker, clientID, msg),
+				2 => self.key_exchange(&worker, clientID, msg),
+				3 => self.input_sharing(&worker, clientID, msg),
+				4 => self.shares_collection(&worker, clientID, msg),
 				_ => Err(WorkerError::UnknownState(0))
 			};
 		}
@@ -197,19 +225,15 @@ impl Server {
 			Ok(mut guard) => {
 				if guard.contains(&clientID) {
 					send(&worker.dealer, "Error: You already exists.", &clientID);
-					return Err(WorkerError::MaxClientExceed(0));
+					return Err(WorkerError::MaxClientExceed(1));
 				}
 				if guard.len() == self.MAX {
 		            send(&worker.dealer, "Error: Reached maximun client number.", &clientID);
-					return Err(WorkerError::MaxClientExceed(0));	
+					return Err(WorkerError::MaxClientExceed(1));	
 				}
-				// if !self.check_state(0) { 
-				// 	send(&worker.dealer,"Error: Wrong state.", &clientID);
-				// 	return Err(WorkerError::WrongState(0)); 
-				// }
 				guard.push(clientID.clone());
 			},
-			Err(_) => return Err(WorkerError::MutexLockFail(0)),
+			Err(_) => return Err(WorkerError::MutexLockFail(1)),
 		};
 
 	/*
@@ -232,9 +256,9 @@ impl Server {
 		};
 		match self.clientProfiles.write() {
 			Ok(mut guard) => guard.insert( clientID.clone(), newProfiel),
-			Err(guard) => return Err(WorkerError::MutexLockFail(0)),
+			Err(guard) => return Err(WorkerError::MutexLockFail(1)),
 		};
-		worker.threadSender.send(0);
+		worker.threadSender.send(1);
 		println!("handshaked with {:?}", std::str::from_utf8(&clientID).unwrap());
 		return Ok(1);
 	}
@@ -245,10 +269,10 @@ impl Server {
 		Make sure client exist
 		Parse msg
 	*/
-		// if !self.check_exist(&clientID) {
-		// 	send(&worker.dealer,"Error: Your profile not found", &clientID);
-		// 	return Err(WorkerError::ClientNotFound(1))
-		// }
+		if !self.check_exist(&clientID) {
+			send(&worker.dealer,"Error: Your profile not found", &clientID);
+			return Err(WorkerError::ClientNotFound(1))
+		}
 		let publicKey;
 		let singedPublicKey;
 		match msg {
@@ -256,7 +280,7 @@ impl Server {
 				if (m.len() != 2) {
 					send(&worker.dealer, 
 						"Please send with format: [publicKey, Enc(publicKey)]", &clientID);
-					return Err(WorkerError::UnexpectedFormat(1))
+					return Err(WorkerError::UnexpectedFormat(3))
 				}
 				publicKey = m[0].clone();
 				singedPublicKey = Signature::from_bytes(&m[1]).unwrap();
@@ -264,7 +288,7 @@ impl Server {
 			_ => {
 				send(&worker.dealer, 
 					"Please send with ormat: [publicKey, Enc(publicKey, veriKey)]", &clientID);
-				return Err(WorkerError::UnexpectedFormat(0))
+				return Err(WorkerError::UnexpectedFormat(3))
 			},
 		}
 	/*
@@ -274,7 +298,7 @@ impl Server {
 	*/
 		let veriKey = match self.clientProfiles.read() {
 			Ok(mut guard) => guard.get(&clientID).unwrap().veriKey.clone(),
-			Err(_) => return Err(WorkerError::MutexLockFail(1)),
+			Err(_) => return Err(WorkerError::MutexLockFail(3)),
 		};
 		match veriKey.verify(&publicKey, &singedPublicKey) {
 			Ok(_) => {
@@ -284,22 +308,22 @@ impl Server {
 			 // 	}
 			 	match self.clientProfiles.write() {
 					Ok(mut guard) => guard.get_mut(&clientID).unwrap().publicKey = publicKey.to_vec(),
-					Err(_) => return Err(WorkerError::MutexLockFail(1)),
+					Err(_) => return Err(WorkerError::MutexLockFail(3)),
 				};
 				match self.keyList.write() {
 					Ok(mut guard) => guard.insert(publicKey.to_vec(), clientID.clone()),
-					Err(_) => return Err(WorkerError::MutexLockFail(1)),
+					Err(_) => return Err(WorkerError::MutexLockFail(3)),
 				};
 		 		send(&worker.dealer, "Your publicKey has been save.", &clientID);
 			},
 			Err(_) => {
 		 		send(&worker.dealer, "Error: Decryption Fail.", &clientID);
-				return Err(WorkerError::DecryptionFail(1))
+				return Err(WorkerError::DecryptionFail(3))
 			},
 		}
- 		worker.threadSender.send(1);
+ 		worker.threadSender.send(2);
  		println!("key_exchanged with {:?}", std::str::from_utf8(&clientID).unwrap());
-		return Ok(1)
+		return Ok(2)
 	}
 
 
@@ -311,14 +335,14 @@ impl Server {
 	*/
 		if !self.check_exist(&clientID) {
 			send(&worker.dealer,"Error: Your profile not found", &clientID);
-			return Err(WorkerError::ClientNotFound(1))
+			return Err(WorkerError::ClientNotFound(3))
 		}
 		let mut sendTo;
 		let msg = match msg {
 			RecvType::matrix(m) => {
 				sendTo = match self.keyList.read().unwrap().get(&m[0]) {
 					Some(id) => id.clone(),
-					None => return Err(WorkerError::ClientNotFound(2)),
+					None => return Err(WorkerError::ClientNotFound(3)),
 				};
 				let publicKey = match self.clientProfiles.read() {
 					Ok(mut guard) => guard.get(&clientID).unwrap().publicKey.clone(),
@@ -328,7 +352,7 @@ impl Server {
 			}, 
 			_ => {
 				send(&worker.dealer, "Please send your shares as matrix.", &clientID);
-				return Err(WorkerError::UnexpectedFormat(2))
+				return Err(WorkerError::UnexpectedFormat(3))
 			},
 		};
 	/*
@@ -345,10 +369,10 @@ impl Server {
 					).as_str(),
 					&clientID);
 			},
-			Err(_) => return Err(WorkerError::SharingFail(2)),
+			Err(_) => return Err(WorkerError::SharingFail(3)),
 		};
-		worker.threadSender.send(2);
-		return Ok(2)
+		worker.threadSender.send(3);
+		return Ok(3)
 	}
 
 
@@ -360,7 +384,7 @@ impl Server {
 	*/
 		if !self.check_exist(&clientID) {
 			send(&worker.dealer,"Error: Your profile not found", &clientID);
-			return Err(WorkerError::ClientNotFound(3))
+			return Err(WorkerError::ClientNotFound(4))
 		}
 		let msg = match msg {
 			RecvType::matrix(m) => {
@@ -368,7 +392,7 @@ impl Server {
 					send(&worker.dealer, 
 						"Please send your shares with a signature. Format: [shares, Enc(shares)]", 
 						&clientID);
-					return Err(WorkerError::UnexpectedFormat(3))
+					return Err(WorkerError::UnexpectedFormat(4))
 				}
 				m
 			},
@@ -376,7 +400,7 @@ impl Server {
 				send(&worker.dealer, 
 					"Please send your shares key with a signature. Format: [shares, Enc(shares)]", 
 					&clientID);
-				return Err(WorkerError::UnexpectedFormat(0))
+				return Err(WorkerError::UnexpectedFormat(4))
 			},
 		};
 	/*
@@ -390,7 +414,7 @@ impl Server {
 					&Signature::from_bytes(&msg[1]).unwrap()		//signature of shares
 				)
 			},
-			Err(_) => return Err(WorkerError::MutexLockFail(1)),
+			Err(_) => return Err(WorkerError::MutexLockFail(4)),
 		};
 		match verifyResult {
 			Ok(_) => {
@@ -398,12 +422,12 @@ impl Server {
 		 		send(&worker.dealer, 
 		 			"Your aggregated shares has been save.", 
 		 			&clientID);
-		 		worker.threadSender.send(3);
-		 		return Ok(3)
+		 		worker.threadSender.send(4);
+		 		return Ok(4)
 			},
 			Err(_) => {
 		 		send(&worker.dealer, "Error: Decryption Fail.", &clientID);
-				return Err(WorkerError::DecryptionFail(0))
+				return Err(WorkerError::DecryptionFail(4))
 			},
 		}		
 
@@ -413,12 +437,13 @@ impl Server {
 	fn reconstruction(&self) -> Result<Vec<u128>, usize> {
 		let sharesGuard = match self.shares.lock() {									// Mutex Obtained
 			Ok(mut guard) => guard,
-			Err(_) => return Err(3),
+			Err(_) => return Err(5),
 		};		
 		let B = sharesGuard[0].len();
 		let N = sharesGuard.len();
 		let param = &self.param;
 		let mut result = Vec::new();
+		println!("reconstruction param {:?}, {}, {}, {}", param.useDegree2, param.useDegree3, param.useDegree2, N);
 		for i in 0..B {
 			let mut pss;
 			// When V = B * L + remains
