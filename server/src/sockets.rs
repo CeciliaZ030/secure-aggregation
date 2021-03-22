@@ -87,6 +87,9 @@ where
 	return Ok(0)
 }
 
+
+
+
 pub fn publish_vecs<I, T>(socket: &Socket, data: I, topic: &str) -> Result<usize, usize>
 where
     I: IntoIterator<Item = T> + std::clone::Clone + std::fmt::Debug,

@@ -88,16 +88,16 @@ pub fn timer_task(receiver: mpsc::Receiver<usize>, timesUp: Arc<RwLock<bool>>) -
 	}
 }
 
-pub fn format_clientData(datas: &mut HashMap<Vec<u8>, Profile>, 
-    order: &mut Vec<Vec<u8>>, field: &str) -> Result<Vec<Vec<u8>>, ServerError> {
+pub fn format_clientData(profiles: &mut HashMap<Vec<u8>, Profile>, 
+    list: &mut Vec<Vec<u8>>, field: &str) -> Result<Vec<Vec<u8>>, ServerError> {
     /*
-		Format to send veriKey or publicKey to clients with clientList order
+		Format to send veriKey or publicKey to clients with clientList list
 		Remove from profiles and list if pk is missing
     */
     let mut vecs = Vec::new();
     let mut dropouts = Vec::new();
-    for (i, key) in order.iter().enumerate()  {
-        match datas.get(key) {
+    for (i, key) in list.iter().enumerate()  {
+        match profiles.get(key) {
         	Some(d) => {
 		        match field {
 		        	"veriKey" => {
@@ -119,9 +119,9 @@ pub fn format_clientData(datas: &mut HashMap<Vec<u8>, Profile>,
         	},
         }
     }
-   	for i in dropouts {
-   		let key = order.remove(i);
-   		datas.remove(&key);
+   	for d in dropouts {
+   		let key = list.remove(d);
+   		profiles.remove(&key);
    	}
     return Ok(vecs)
 }

@@ -40,12 +40,14 @@ pub struct Profile {
 
 pub struct Server {
 	STATE: RwLock<usize>,
-	MAX: usize,
-	V: usize,
-	param: Param,
+	MAX: RwLock<usize>,
+	V: usize,											// Vector size
+	D: usize,											// Dropouts
+	T: usize,											// Corruptions
+	malFg: bool,
+	param: Mutex<Param>,
 	clientList: RwLock<Vec<Vec<u8>>>,					// array of ID
 	clientProfiles: RwLock<HashMap<Vec<u8>, Profile>>,	// key = ID, value = Profile
-	keyList: RwLock<HashMap<Vec<u8>, Vec<u8>>>,			// key = pubKey, value = ID for input sharing retrival
 	dropouts: Mutex<Vec<Vec<bool>>>,
 	shares: Mutex<Vec<Vec<u64>>>,
 }
@@ -55,15 +57,16 @@ impl Server {
 
 	pub fn new(maxClients: usize, 
 		vectorSize: usize, dropouts: usize, corruption: usize, malicious: bool, mut param: Param) -> Server {
-		param.calculate(maxClients, vectorSize, dropouts, corruption, malicious);
 		Server {
 			STATE: RwLock::new(1usize),
-			MAX: maxClients,
+			MAX: RwLock::new(maxClients),
 			V: vectorSize,
-			param: param,
+			D: dropouts,
+			T: corruption,
+			malFg: malicious,
+			param: Mutex::new(param),
 			clientList: RwLock::new(Vec::new()),
 			clientProfiles: RwLock::new(HashMap::<Vec<u8>, Profile>::new()),
-			keyList: RwLock::new(HashMap::<Vec<u8>, Vec<u8>>::new()),
 			dropouts: Mutex::new(Vec::<Vec<bool>>::new()),
 			shares: Mutex::new(Vec::new()),
 		}
@@ -127,8 +130,12 @@ impl Server {
 			/* when finished client num exceed MAX
 			initiate state change
 			*/
+			println!("possible deadlock");
 			let tu = (*timesUp.read().unwrap()).clone();
-			if tu || (*stateGuard != 3 && recvCnt >= self.MAX) || (*stateGuard == 3 && recvCnt >= self.MAX*self.MAX) {
+			println!("tu");
+			let mut M = self.MAX.write().unwrap();
+			println!("self.MAX");
+			if tu || recvCnt >= *M {
 				println!("timesUp {:?}", tu);
 				let mut profilesGuard = match self.clientProfiles.write() {
 					Ok(mut guard) => guard,
@@ -144,22 +151,27 @@ impl Server {
 							&publisher, 
 							format_clientData(&mut (*profilesGuard), &mut (*listGuard), "veriKey").unwrap(), 
 							"HS");
+						*M = listGuard.len();
 						timerTx.send(100000)
 					},
 					2 => {
+						/* format_clientData: at the same time, 
+						removes client who's publicKey is not found
+						*/
 						publish_vecs(
-							&publisher,
+							&publisher, 
 							format_clientData(&mut (*profilesGuard), &mut (*listGuard), "publicKey").unwrap(), 
 							"KE");
-						let sharingParams = self.param.send();
+						*M = listGuard.len();
+						let mut paramGuard = self.param.lock().unwrap();
+						let sharingParams = match self.malFg {
+							true => paramGuard.calculate_semi_honest((*listGuard).len(), self.V, self.D),
+							false => paramGuard.calculate_malicious((*listGuard).len(), self.V, self.D, self.T),
+						};
 						println!("sharingParams {:?}", sharingParams);
 						let mut spBytes = Vec::new();
 						for sp in sharingParams {
 							spBytes.extend(sp.to_le_bytes().to_vec());
-						}
-						match self.dropouts.lock() {
-							Ok(mut guard) => *guard = vec![vec![false; (*listGuard).len()]],
-							Err(_) => return Err(ServerError::MutexLockFail(0)),
 						}
 						publish(&publisher, spBytes, "IS");
 						timerTx.send(100000)
@@ -227,7 +239,7 @@ impl Server {
 					send(&worker.dealer, "Error: You already exists.", &clientID);
 					return Err(WorkerError::MaxClientExceed(1));
 				}
-				if guard.len() == self.MAX {
+				if guard.len() == *self.MAX.read().unwrap() {
 		            send(&worker.dealer, "Error: Reached maximun client number.", &clientID);
 					return Err(WorkerError::MaxClientExceed(1));	
 				}
@@ -294,7 +306,7 @@ impl Server {
 	/*
 		Clone veriKey
 		Verify signature
-		Sotre DH pk in profiles & keyList
+		Sotre DH pk in profiles
 	*/
 		let veriKey = match self.clientProfiles.read() {
 			Ok(mut guard) => guard.get(&clientID).unwrap().veriKey.clone(),
@@ -302,16 +314,8 @@ impl Server {
 		};
 		match veriKey.verify(&publicKey, &singedPublicKey) {
 			Ok(_) => {
-				// if !self.check_state(1) {
-			 // 		send(&worker.dealer,"Error: Wrong state.", &clientID);
-			 // 		return Err(WorkerError::WrongState(1));
-			 // 	}
 			 	match self.clientProfiles.write() {
 					Ok(mut guard) => guard.get_mut(&clientID).unwrap().publicKey = publicKey.to_vec(),
-					Err(_) => return Err(WorkerError::MutexLockFail(3)),
-				};
-				match self.keyList.write() {
-					Ok(mut guard) => guard.insert(publicKey.to_vec(), clientID.clone()),
 					Err(_) => return Err(WorkerError::MutexLockFail(3)),
 				};
 		 		send(&worker.dealer, "Your publicKey has been save.", &clientID);
@@ -337,40 +341,46 @@ impl Server {
 			send(&worker.dealer,"Error: Your profile not found", &clientID);
 			return Err(WorkerError::ClientNotFound(3))
 		}
-		let mut sendTo;
-		let msg = match msg {
-			RecvType::matrix(m) => {
-				sendTo = match self.keyList.read().unwrap().get(&m[0]) {
-					Some(id) => id.clone(),
-					None => return Err(WorkerError::ClientNotFound(3)),
-				};
-				let publicKey = match self.clientProfiles.read() {
-					Ok(mut guard) => guard.get(&clientID).unwrap().publicKey.clone(),
-					Err(_) => return Err(WorkerError::MutexLockFail(1)),
-				};
-				vec![publicKey, m[1].clone()]
-			}, 
+		let shares = match msg {
+			RecvType::matrix(m) => m, 
 			_ => {
 				send(&worker.dealer, "Please send your shares as matrix.", &clientID);
 				return Err(WorkerError::UnexpectedFormat(3))
 			},
 		};
 	/*
-		Send [pk, share] to target
+		For each outbounding share
+		Send [senderPk, share]
 	*/
-		println!("input sharing matix (len: {:?}) from {:?} to {:?}", 
-					msg[1].len(), str::from_utf8(&clientID).unwrap(), str::from_utf8(&sendTo).unwrap());
-		match send_vecs(&worker.dealer, msg, &sendTo) {
-			Ok(_) => {
-				send(&worker.dealer,
-					format!("sharing from {:?} to {:?} successful", 
-						str::from_utf8(&clientID).unwrap(),
-						str::from_utf8(&sendTo).unwrap()
-					).as_str(),
-					&clientID);
-			},
-			Err(_) => return Err(WorkerError::SharingFail(3)),
+		let listGuard = match self.clientList.read() {
+			Ok(guard) => guard,
+			Err(_) => return Err(WorkerError::MutexLockFail(0)),
 		};
+		let senderPk = match self.clientProfiles.read() {
+			Ok(guard) => guard.get(&clientID).unwrap().publicKey.clone(),
+			Err(_) => return Err(WorkerError::MutexLockFail(0)),
+		}; 
+		
+		println!("{:?} forwarded with pk {:?}", str::from_utf8(&clientID).unwrap(), senderPk);
+		
+		assert_eq!(shares.len(), listGuard.len());
+		for i in 0..shares.len() {
+			/* 
+			attach senderPK so that reciever knows who is this from
+			and which sharedKey to use
+			*/
+			let msg = vec![senderPk.clone(), shares[i].clone()];
+			match send_vecs(&worker.dealer, msg, &listGuard[i]) {
+				Ok(_) => continue,
+				Err(_) => return Err(WorkerError::SharingFail(3)),
+			};
+			println!("share (len: {:?}) from {:?} to {:?}", 
+				shares[i].len(), str::from_utf8(&clientID).unwrap(), str::from_utf8(&listGuard[i]).unwrap());
+		}
+		match self.clientProfiles.write() {
+			Ok(mut guard) => guard.get_mut(&clientID).unwrap().hasShared = true,
+			Err(_) => return Err(WorkerError::MutexLockFail(0)),
+		}; 
 		worker.threadSender.send(3);
 		return Ok(3)
 	}
@@ -439,24 +449,27 @@ impl Server {
 			Ok(mut guard) => guard,
 			Err(_) => return Err(5),
 		};		
+
+		// Handles dropouts
 		let B = sharesGuard[0].len();
 		let N = sharesGuard.len();
-		let param = &self.param;
+		let param = &self.param.lock().unwrap();
 		let mut result = Vec::new();
-		println!("reconstruction param {:?}, {}, {}, {}", param.useDegree2, param.useDegree3, param.useDegree2, N);
+		println!("reconstruction param {:?}, {}, {}, {}", param.useDegree2, param.useDegree3, param.packingLen, N);
 		for i in 0..B {
 			let mut pss;
 			// When V = B * L + remains
-			if i == B-1 && (param.useDegree2 as usize) * B != self.V {
+			if i == B-1 && (param.packingLen as usize) * B > self.V {
+				println!("{:?} * {} < {}", (param.packingLen as usize), B, self.V);
 				pss = PackedSecretSharing::new(
 					param.P, param.R2, param.R3, 
-					param.useDegree2, param.useDegree3, self.V-(param.useDegree2 as usize)*B, N
-					);
+					param.useDegree2, param.useDegree3, self.V-(param.packingLen as usize)*(B-1), N
+				);
 			}
 			else {
 				pss = PackedSecretSharing::new(
-					self.param.P, self.param.R2, self.param.R3, 
-					param.useDegree2, param.useDegree3, param.useDegree2, N
+					param.P, param.R2, param.R3, 
+					param.useDegree2, param.useDegree3, param.packingLen, N
 				);
 			}
 			let mut shares = Vec::new();
@@ -466,6 +479,8 @@ impl Server {
 			result.extend(pss.reconstruct(&shares));
 		}
 		println!("Reconstruction DONE");
+		println!("constructed len {:?}", result.len());
+		result.split_off(self.V);
 		return Ok(result);
 	}
 

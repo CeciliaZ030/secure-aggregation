@@ -61,7 +61,7 @@ impl PackedSecretSharing {
 
 /*
 
-	secret = [s0, ...., s5]
+	secret = [s0, ...., s512]
 		|
 	FFT2(input) --> with 512th root
 		|
@@ -156,7 +156,6 @@ impl PackedSecretSharing {
 
 		self.rootTable2.split_off(self.num_secrets);
 		lagrange_interpolation(&shares_point, &shares_val, &self.rootTable2, &self.prime)
-
 	}
 
 	// Comput rootThrees

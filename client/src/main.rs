@@ -27,7 +27,7 @@ fn main() {
 
 	let mut input = Vec::<u64>::new();
 	for _ in 0..vectorSize {
-		input.push(OsRng.next_u64());
+		input.push(5);
 	}
 	match client.input_sharing(&input){
     	Ok(_) => (),

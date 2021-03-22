@@ -5,7 +5,6 @@ pub struct Param {
 	pub R3: u128,
 	D2: usize,
 	D3: usize,
-
 	rootTwos: Vec<u128>,
 	rootThrees: Vec<u128>,
 
@@ -13,6 +12,7 @@ pub struct Param {
 	pub useDegree3: usize,
 	pub useRoot2: u128,
 	pub useRoot3: u128,
+	pub packingLen: usize,
 }
 
 impl Param {
@@ -45,22 +45,19 @@ impl Param {
 			R3: R3,
 			D2: D2,
 			D3: D3,
-
 			rootTwos: rootTwos,
 			rootThrees: rootThrees,
 
-			// init through calculate_sharing
 			useDegree2: 0,
 			useDegree3: 0,
 			useRoot2: 0u128,
 			useRoot3: 0u128,
+			packingLen: 0,
 		}
 	}
-	pub fn calculate(&mut self, 
-		numClients: usize, vectorSize: usize, dropouts: usize, corruption: usize, malicious: bool){
+	pub fn calculate_semi_honest(&mut self, numClients: usize, vectorSize: usize, dropouts: usize) -> Vec<u128> {
 		
-		let mut reconstructLimit = 16;
-		let numCorrupted = numClients/6;
+		let mut reconstructLimit = numClients - dropouts;
 
 		// find the nearest exponent of two
 		/* Ex: degree2 = 300 -> 256
@@ -72,10 +69,15 @@ impl Param {
 			n *= 2;
 			power2 += 1;
 		}
-		//power2 -= 1;
+		power2 -= 1;
+		// Make sure don't exceed the maximun power roots provided
+		assert!(power2 <= self.D2);
+
 		self.useDegree2 = 2usize.pow(power2 as u32);
 		self.useRoot2 = self.rootTwos[power2];
-		println!("power2 {:?}, reconstruction limit {:?}", power2, reconstructLimit);
+		self.packingLen = self.useDegree2;
+		println!("deg2 < n - dropouts {} = reconstructLimit {}", dropouts, reconstructLimit);
+		println!("deg2 {:?} = blocklenth {} + corruption 0", self.useDegree2, self.packingLen);
 
 		// find the nearest exponent of three
 		/* Ex: degree3 = 1000 -> 729
@@ -87,28 +89,12 @@ impl Param {
 			n *= 3;
 			power3 += 1;
 		}
+
+		// Make sure don't exceed the maximun power roots provided
+		assert!(power3 <= self.D3);
+
 		self.useDegree3 = 3usize.pow(power3 as u32);
 		self.useRoot3 = self.rootThrees[power3];
-		println!("power3 {:?}", power3);
-
-		// blockLength <= numClient/3
-		/* Ex: N = 1000, V = 100,000
-		*	   L = 1000/3 = 333 
-		*	   B = 100,000/333 = 300
-		*		256 < 333 < 512
-		*	decrease the numbers of NTT rounds
-		*	V = B↓ * L↑ 
-		*	  = V/(N/3)*(N/3)
-		*	
-		*	B <= L
-		*	V/(N/3) <= N/3
-		*	V <= (N^2)/9	10 <= 10*10/9	40 <= 20*20/9	100 <= 30*30/9	160 <= 40*40/9	100,000 <= 1000*1000/9
-		*					10 = 3*3+1		40 = 6*6+4		100 = 10*10		160 = 13*12+4	100,000 = 333*300+100
-		*/
-
-	}
-
-	pub fn send(&self) -> Vec<u128>{
 
 		return vec![
 			self.useDegree2 as u128,	// degree2
@@ -116,8 +102,60 @@ impl Param {
 			self.P,						// prime
 			self.useRoot2,				// two-power root of unity
 			self.useRoot3,				// three-power root of unity
+			self.packingLen as u128
 		];
+	}
 
+	pub fn calculate_malicious(&mut self, numClients: usize, vectorSize: usize, dropouts: usize, corruption: usize) -> Vec<u128> {
+		
+		let mut reconstructLimit = numClients - (dropouts + 2 * corruption);
 
+		// find the nearest exponent of two
+		/* Ex: degree2 = 300 -> 256
+		*	   power2 = 8 since 2^8 = 256
+		*/
+		let mut n = 2;
+		let mut power2 = 1;
+		while (n < reconstructLimit) {
+			n *= 2;
+			power2 += 1;
+		}
+		power2 -= 1;
+
+		// Make sure don't exceed the maximun power roots provided
+		assert!(power2 <= self.D2);
+
+		self.useDegree2 = 2usize.pow(power2 as u32);
+		self.useRoot2 = self.rootTwos[power2];
+		self.packingLen = self.useDegree2 - corruption;
+
+		println!("deg2 < n - (d {} + 2t {}) = reconstructLimit {}", dropouts, corruption, reconstructLimit);
+		println!("deg2 {:?} = blocklenth {} + corruption {}", self.useDegree2, self.packingLen, corruption);
+
+		// find the nearest exponent of three
+		/* Ex: degree3 = 1000 -> 729
+		*      power3 = 6 since 3^6 = 729
+		*/
+		let mut n = 3;
+		let mut power3 = 1;
+		while (n < numClients) {
+			n *= 3;
+			power3 += 1;
+		}
+
+		// Make sure don't exceed the maximun power roots provided
+		assert!(power3 <= self.D3);
+
+		self.useDegree3 = 3usize.pow(power3 as u32);
+		self.useRoot3 = self.rootThrees[power3];
+
+		return vec![
+			self.useDegree2 as u128,	// degree2
+			self.useDegree3 as u128,	// degree3
+			self.P,						// prime
+			self.useRoot2,				// two-power root of unity
+			self.useRoot3,				// three-power root of unity
+			self.packingLen as u128
+		];
 	}
 }
