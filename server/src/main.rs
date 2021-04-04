@@ -24,8 +24,9 @@ fn main() {
         args[1].parse::<usize>().unwrap(),          // MAX clients
         args[2].parse::<usize>().unwrap(),          // Vector Length
         args[3].parse::<usize>().unwrap(),          // Dropouts
-        args[4].parse::<usize>().unwrap(),          // Corrupted Parties
-        args[5].parse::<bool>().unwrap(),           // Malicious Flag
+        args[4].parse::<usize>().unwrap(),          // Session time
+        args[5].parse::<usize>().unwrap(),           // Corrupted Parties
+        args[6].parse::<bool>().unwrap(),           // Malicious Flag
         param
     ));
 

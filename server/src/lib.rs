@@ -51,6 +51,7 @@ pub struct Server {
 	V: usize,											// Vector size
 	D: usize,											// Dropouts
 	T: usize,											// Corruptions
+	sessTime: usize,									// Time allowed for each state
 	malFg: bool,
 	param: RwLock<Param>,
 	clientList: RwLock<Vec<Vec<u8>>>,					// array of ID
@@ -63,13 +64,15 @@ pub struct Server {
 impl Server {
 
 	pub fn new(maxClients: usize, 
-		vectorSize: usize, dropouts: usize, corruption: usize, malicious: bool, mut param: Param) -> Server {
+		vectorSize: usize, dropouts: usize, sessionTime: usize, 
+		corruption: usize, malicious: bool, mut param: Param) -> Server {
 		Server {
 			STATE: RwLock::new(1usize),
 			MAX: RwLock::new(maxClients),
 			V: vectorSize,
 			D: dropouts,
 			T: corruption,
+			sessTime: sessionTime,
 			malFg: malicious,
 			param: RwLock::new(param),
 			clientList: RwLock::new(Vec::new()),
@@ -122,7 +125,7 @@ impl Server {
 	        };
 	    });
 
-		timerTx.send(100000);
+		timerTx.send(self.sessTime);
 
 		let mut recvCnt = 0;
 		let mut finalResult;
@@ -164,7 +167,7 @@ impl Server {
 							format_clientData(&mut *profiles, &mut *list, "veriKey").unwrap(), 
 							"HS");
 						M = list.len();
-						timerTx.send(10000)
+						timerTx.send(self.sessTime)
 					},
 					2 => {
 						/* Dropouts handled in format_clientData
@@ -185,7 +188,7 @@ impl Server {
 							spBytes.extend(sp.to_le_bytes().to_vec());
 						}
 						publish(&publisher, spBytes, "IS");
-						timerTx.send(10000)
+						timerTx.send(self.sessTime)
 					},
 					3 => {
 						/* Check dropouts from IS
@@ -215,7 +218,7 @@ impl Server {
 						println!("IS dropouts {:?}, EC params len {:?}", new_dropouts, msg[1].len()/8);
 						*corrections = vec![vec![vec![0; M]; M]; 7];		//TODO: more tests to come....
 						publish_vecs(&publisher, msg, "EC");
-						timerTx.send(100000)
+						timerTx.send(self.sessTime)
 					},
 					4 => {
 						/* Check dropouts from EC
@@ -239,7 +242,7 @@ impl Server {
 						println!("EC dropouts & fail {:?}", msg.len());
 						dropouts.extend(new_dropouts);
 						publish(&publisher, msg, "AG");
-						timerTx.send(100000)
+						timerTx.send(self.sessTime)
 					},
 					5 => { 
 						println!("recv Aggregated Shares {:?} {}", shares.len(), shares[0].len());
@@ -263,7 +266,7 @@ impl Server {
 				};
 			}
 
-			match threadReciever.recv() {
+			match threadReciever.try_recv() {
 				Ok(notification) => {
 					/* worker thread send stateNum 
 					when finish processing one client
