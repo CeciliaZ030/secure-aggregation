@@ -59,6 +59,10 @@ impl Param {
 
 /*
 TOUGHTS:
+<<<<<<< HEAD
+=======
+
+>>>>>>> 6abd536567e92573524fc9e680b19659257d9229
 	V = B * L + remainder is really annoying
 	Why don't we make it such that L always divides V?
 	calculate_semi_honest -> maximun divider of V that's <= degree2
