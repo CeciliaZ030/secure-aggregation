@@ -72,10 +72,11 @@ pub fn timer_task(receiver: mpsc::Receiver<usize>, timesUp: Arc<RwLock<bool>>) -
 						println!("Restart {}", T);
 						break
 					},
-					Err(_) =>  continue,//{println!("try_recv"); return Err(ServerError::TimerFail(0))},
+					Err(e) => {
+						thread::sleep(Duration::from_millis(10));
+						i += 1
+					},
 				};
-				thread::sleep(Duration::from_millis(10));
-				i += 1;
 			}
 			if i == T/10 {
 				T = 0;
@@ -119,8 +120,8 @@ pub fn format_clientData(profiles: &mut HashMap<Vec<u8>, Profile>,
         	},
         }
     }
-   	for d in dropouts {
-   		let key = list.remove(d);
+   	for i in dropouts {
+   		let key = list.remove(i);
    		profiles.remove(&key);
    	}
     return Ok(vecs)
@@ -134,9 +135,11 @@ pub fn read_le_u64(input: &Vec<u8>) -> Vec<u64> {
         let (int_bytes, rest) = ptr.split_at(std::mem::size_of::<u64>());
         *ptr = rest;
         res.push(u64::from_le_bytes(int_bytes.try_into().unwrap()));
-        if (rest.len() < 8) {
+        if rest.len() < 8 {
             break;
         }
     }
     res
 }
+
+
