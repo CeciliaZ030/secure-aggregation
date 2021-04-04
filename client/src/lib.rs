@@ -9,7 +9,7 @@ use std::thread::sleep;
 use zmq::SNDMORE;
 use zmq::Message;
 
-use rand_core::OsRng;
+use rand_core::{RngCore, OsRng};
 use signature::Signature as _;
 use p256::{
 	NistP256,
@@ -42,12 +42,12 @@ pub enum ClientError {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Param {
-	degree2: usize,
-	degree3: usize,
-	prime: u128,
-	root2: u128,
-	root3: u128,
-	packingLen: usize,
+	P: u128,
+	R2: u128,
+	R3: u128,
+	D2: usize,
+	D3: usize,
+	L: usize,
 	remainder: usize,
 }
 
@@ -68,13 +68,14 @@ pub struct Client{
 	publicKey: EncodedPoint,
 
 	clientVerikeys: Vec<Vec<u8>>,
-	shareKeys: HashMap<Vec<u8>, Vec<u8>>, 	// Array of [pubKey, shareKey]
+	shareKeys: HashMap<Vec<u8>, Vec<u8>>, 	// {key: pubKey, value: shareKey}
 	shareOrder:  Vec<Vec<u8>>,				/* [pk_c1, pk_c2, ....] 
 											all clients assign shares in this order
 											*/
 
 	vectorSize: usize,
 	param: Option<Param>,
+	shares: Vec<Vec<u64>>,
 }
 
 impl Client{
@@ -131,6 +132,7 @@ impl Client{
 			shareOrder: Vec::<Vec<u8>>::new(),				
 			vectorSize: vectorSize,
 			param: None,
+			shares: Vec::new(),
 		}
 	}
 
@@ -168,10 +170,10 @@ impl Client{
 		match waitRes {
 			RecvType::matrix(m) => {
 				println!("{} Recieved other's vk: {:?}", self.ID, &m.len());
-				self.clientVerikeys = m;
+				self.clientVerikeys = m
 			},
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
-		}
+		};
 		println!("OK from handshake");
 		return Ok(0)
 	}
@@ -224,104 +226,12 @@ impl Client{
 			};
 		}
 		self.shareOrder = publicKeys;
-		println!("OK from key_exchange");
+		println!("{}, OK from key_exchange", self.ID);
 		return Ok(1) 
 	}
 	
 
-
-	// pub fn input_sharing(&mut self, input: &Vec<u64>) -> Result<usize, ClientError> {
-	// 	println!("{:?}", input);
-
-	// /*		 
-	// 		Wait for state change
-	// 		Recv sharing parameters
-	// 		Perform pss
-	// */
-	// 	assert!(input.len() == self.vectorSize);
-	// 	let waitRes = self.state_change_broadcast("IS");
-	// 	let sharingParams = match waitRes {
-	// 		RecvType::bytes(m) => {
-	// 			assert_eq!(m.len(), 6*16);
-	// 			read_le_u128(m)
-	// 		},
-	// 		_ => return Err(ClientError::UnexpectedRecv(waitRes)),
-	// 	};
-
-	// 	let mut param = Param {
-	// 		degree2: sharingParams[0] as usize,
-	// 		degree3: sharingParams[1] as usize,
-	// 		prime: sharingParams[2],
-	// 		root2: sharingParams[3],
-	// 		root3: sharingParams[4],
-	// 		packingLen: sharingParams[5] as usize,
-	// 		remainder: false,
-	// 	};
-	// 	let N = self.shareKeys.len();
-	// 	let L = param.packingLen;
-	// 	let B = input.len()/L;
-		
-	// 	// V = B * L
-
-	// 	let mut pss = PackedSecretSharing::new(
-	// 		param.prime, param.root2, param.root3, param.degree2, param.degree3, L, N
-	// 	);
-	// 	let mut resultMatrix = vec![vec![0u8; 0]; N];
-	// 	for i in 0..B {
-	// 		let shares = pss.share(
-	// 			&input[L*i..L+L*i]);
-	// 		for j in 0..N {
-	// 			resultMatrix[j].extend((shares[j] as u64).to_le_bytes().to_vec())
-	// 		}
-	// 	}
-
-	// 	println!("computing shares with param d2: {:?}, d3: {}, V = B * L = {} * {}, N {}", 
-	// 		param.degree2, param.degree3, B, L, N);
-
-	// 	// V = B * L + remains
-
-	// 	param.remainder = B * L < input.len();
-	// 	if (param.remainder) {
-	// 		pss = PackedSecretSharing::new(
-	// 			param.prime, param.root2, param.root3, param.degree2, param.degree3, input.len()-B*L, N
-	// 		);
-	// 		println!("remainder V = B * L = {} * {} + {}", B, L, input.len()-B*L);
-	// 		let shares = pss.share(&input[B * L..input.len()]);
-	// 		for j in 0..N {
-	// 			resultMatrix[j].extend((shares[j] as u64).to_le_bytes().to_vec())
-	// 		}
-	// 	}
-
-	// /* 
-	// 	 	Encrypt shares for each DH sharedKey
-	// 		Send with format: 
-	// 		(pk, Enc(sharedKey, shares))
-	// */
-	
-	// 	println!("finished pss: (#Clients * sharesLen) = ({} * {})..", resultMatrix.len(), resultMatrix[0].len());
-		
-	// 	for (i, (pk, shareKey)) in self.shareKeys.iter().enumerate() {
-			
-	// 		let k = GenericArray::from_slice(&shareKey);
-	// 		let cipher = Aes256Gcm::new(k);
-	// 		let nonce = GenericArray::from_slice(b"unique nonce");
-	// 		let encryptedShares = cipher.encrypt(nonce, resultMatrix[i]
-	// 									.as_slice())
-	// 	    					   		.expect("encryption failure!");	
-	// 	    let mut msg = Vec::new();
-	// 	    msg.push(pk.clone());
-	// 	    msg.push(encryptedShares);
-	// 		match send_vecs(&self.sender, msg) {
-	// 			Ok(_) => continue,
-	// 			Err(_) => return Err(ClientError::SendFailure(2)),
-	// 		};
-	// 	}
-	// 	self.param = Some(param);
-	// 	Ok(2)
-	// }
-
-	pub fn input_sharing(&mut self, input: &Vec<u64>) -> Result<usize, ClientError> {
-		println!("{:?}", input);
+	pub fn input_sharing(&mut self, input: &mut Vec<u64>) -> Result<usize, ClientError> {
 
 	/*		 
 			Wait for state change
@@ -332,63 +242,86 @@ impl Client{
 		let waitRes = self.state_change_broadcast("IS");
 		let sharingParams = match waitRes {
 			RecvType::bytes(m) => {
-				assert_eq!(m.len(), 6*16);
-				read_le_u128(m)
+				assert_eq!(m.len(), 6*8);
+				read_le_u64(m)
 			},
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
 
 		let mut param = Param {
-			degree2: sharingParams[0] as usize,
-			degree3: sharingParams[1] as usize,
-			prime: sharingParams[2],
-			root2: sharingParams[3],
-			root3: sharingParams[4],
-			packingLen: sharingParams[5] as usize,
+			P: sharingParams[0] as u128,
+			R2: sharingParams[1] as u128,
+			R3: sharingParams[2] as u128,
+			D2: sharingParams[3] as usize,
+			D3: sharingParams[4] as usize,
+			L: sharingParams[5] as usize,			// in semi-honest, L = D2
 			remainder: 0usize,
 		};
 		let N = self.shareKeys.len();
-		let L = param.packingLen;
-		let B = input.len()/L;
-		param.remainder = input.len() - B * L;
+		let V = self.vectorSize;
+		let L = param.L;
+		let B = V/L;
+		param.remainder = V - B * L;
 
-		println!("param d2: {:?}, d3: {}, packingLen {}", param.degree2, param.degree3, L);		
+		println!("{} param R2: {}, R3: {}, d2: {:?}, d3: {}, L {}", self.ID, param.R2, param.R3, param.D2, param.D3, L);		
 
 		// V = B * L
 		println!("B * L = {} * {}, N = {}",  B, L, N);
 
 		let mut pss = PackedSecretSharing::new(
-			param.prime, param.root2, param.root3, param.degree2, param.degree3, L, N
+			param.P, param.R2, param.R3, 
+			param.D2, param.D3, 5 * V, L, N
 		);
-		let mut resultMatrix = vec![vec![0u8; 0]; N];
-		for i in 0..B {
-			let shares = pss.share_ref(&input[L*i..L+L*i]);
-			for j in 0..N {
-				resultMatrix[j].extend(shares[j].to_le_bytes().to_vec())
-			}
+
+	/*
+		[xi1 xi2 ... xim ]
+		[y1 y2 ... ym]
+		[ai 0 ... 0 
+		[a0i a1i ... 0]	//one bit of ai
+		[r1 r2 ... rm]
+	*/
+
+		// Insert y = x^2
+		let mut ySum = 0u128;
+		for i in 0..V {
+			let y = (input[i] as u128) * (input[i] as u128) % param.P;
+			input.push(y as u64);
+			ySum = (ySum + y) % param.P;
 		}
 
-		// V = B * L + remains
-
-		if (param.remainder != 0) {
-			pss = PackedSecretSharing::new(
-				param.prime, param.root2, param.root3, param.degree2, param.degree3, input.len()-B*L, N
-			);
-			println!("remainder r = {}", param.remainder);
-			println!("{:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}", param.prime, param.root2, param.root3, param.degree2, param.degree3, input.len()-B*L, N);
-			let shares = pss.share_ref(&input[B * L..input.len()]);
-			println!("from {:?} shares r {:?}", &input[B * L..input.len()], shares);
-			for j in 0..N {
-				resultMatrix[j].extend(shares[j].to_le_bytes().to_vec())
-			}
+		// Insert y sum
+		input.push(ySum as u64);
+		input.extend(vec![0; V-1]);
+		
+		// Insert bits of y sum
+		let mut yBitArr = Vec::<u64>::new();
+		while ySum > 0 {
+			yBitArr.push((ySum % 2) as u64);
+			ySum = ySum >> 1;
 		}
+		yBitArr.reverse();
+		let yBitArr_len = yBitArr.len();
+		assert!(yBitArr_len <= V);
+		input.extend(yBitArr);
+		for _ in yBitArr_len..V {
+			input.push(0);
+		}
+
+		// Insert random
+		for i in 0..V {
+			input.push(OsRng.next_u64());
+		}
+
+		assert!(input.len() == 5 * V);
+		let resultMatrix = pss.share(&input);
 
 	/* 
 		 	Encrypt shares for each DH sharedKey
 			send [shares_c1, shares_c2, ....  ]
 	*/
 	
-		println!("finished pss: (#Clients * sharesLen) = ({} * {})..", resultMatrix.len(), resultMatrix[0].len());
+		println!("finished pss: (#Clients * sharesLen) = ({} * {}).. {}", 
+			resultMatrix.len(), resultMatrix[0].len(), self.ID);
 		let mut msg = Vec::new();
 		for (i, pk) in self.shareOrder.iter().enumerate() {
 			
@@ -396,7 +329,11 @@ impl Client{
 			let k = GenericArray::from_slice(&shareKey);
 			let cipher = Aes256Gcm::new(k);
 			let nonce = GenericArray::from_slice(b"unique nonce");
-			let encryptedShares = cipher.encrypt(nonce, resultMatrix[i]
+			let mut shareBytes = Vec::new();
+			for r in &resultMatrix[i] {
+				shareBytes.extend(&r.to_le_bytes());
+			}
+			let encryptedShares = cipher.encrypt(nonce, shareBytes
 										.as_slice())
 		    					   		.expect("encryption failure!");	
 		    msg.push(encryptedShares);
@@ -408,23 +345,20 @@ impl Client{
 		};
 	}
 
-	pub fn aggregation(&mut self) -> Result<usize, ClientError> {
+	pub fn shares_collection(&mut self) -> Result<usize, ClientError> {
 	/* 
-		 	Aggregation stage
 			Loop to collect shares
 			For each shares, Dec(sharedKey, msg)
 			Then add to sum
 	*/
 		let param = self.param.unwrap();
 		let N = self.shareKeys.len();
-		let L = param.packingLen;
-		let B = self.vectorSize/L;
+		let V = self.vectorSize;
+		let L = param.L;
+		let B = V/L;
 
-		let mut aggregatedShares = match param.remainder {
-			0 => vec![0u128; B],			// V = B * L
-			_ => vec![0u128; B + 1],		// V = B * L + r
-		};
 		let mut cnt = 0;
+		self.shares = vec![vec![0u64]; N];
 		loop {
 			let mut item = [self.sender.as_poll_item(zmq::POLLIN)];
 	        zmq::poll(&mut item, 2).unwrap();
@@ -433,6 +367,7 @@ impl Client{
 	        	match msg {
 	        	 	RecvType::matrix(m) => {
 	        	 		assert!(m.len() == 2);
+	        	 		let idx = self.shareOrder.iter().position(|s| s == &m[0]).unwrap();
 	        	 		let cipher = match self.shareKeys.get(&m[0]) {
 	        	 			Some(c) => {
 								let k = GenericArray::from_slice(c);
@@ -444,7 +379,6 @@ impl Client{
 	        	 			},
 	        	 		};
 						let nonce = GenericArray::from_slice(b"unique nonce");
-
 			 			let plaintext = match cipher.decrypt(nonce, m[1].as_ref()) {
 			 				Ok(p) => read_le_u64(p),
 			 				Err(_) => {
@@ -452,11 +386,9 @@ impl Client{
 			 					return Err(ClientError::EncryptionError(2));
 			 				}
 			 			};
-			 			for i in 0..plaintext.len() {
-			 				aggregatedShares[i] = (aggregatedShares[i] + plaintext[i] as u128) % param.prime;
-			 			}
+			 			assert!(plaintext.len() == 5 * B);
+			 			self.shares[idx] = plaintext;
 			 			cnt += 1;
-				        println!("{:?} has aggregated {} shares", self.ID, cnt);
 	        	 	},
 	        	 	_ => return Err(ClientError::UnexpectedRecv(msg)),
 	        	 };
@@ -467,22 +399,108 @@ impl Client{
 	        	break;
 	        }
 		}
-		println!("aggregated r {:?}", aggregatedShares[B]);
+		Ok(3)
+	}
 
-	/* 
-		 	Server has forwarded N*N shares
-		 	Tells clients to aggregate
-		 	Send aggregated vector
+	pub fn error_correction(&mut self) -> Result<usize, ClientError> {
+	/*
+			Recv vecs for all tests
+			[[dorpouts], [D test], [Input Bit test], ....]
+			Handle dropouts
 	*/
-		self.state_change_broadcast("AG");
-		let mut asBytes = Vec::new();
-		println!("{} sending aggregatedShares {:?}", self.ID, aggregatedShares.len());
-		for a in aggregatedShares {
-			asBytes.extend((a as u64).to_le_bytes().to_vec());
+		let N = self.shareKeys.len();
+		let V = self.vectorSize;
+		let L = self.param.unwrap().L;
+		let B = V/L;
+		let P = self.param.unwrap().P;
+		
+		let waitRes = self.state_change_broadcast("EC");
+		let mut dorpouts;
+		let degTest;
+		match waitRes {
+			RecvType::matrix(m) => {
+				if m.len() != 2 {							// [[dorpouts], [D test],....]
+					return Err(ClientError::UnexpectedRecv(RecvType::matrix(m)));
+				}
+				dorpouts = read_le_u64(m[0].clone());
+				degTest = read_le_u64(m[1].clone()); //TODO: Add more tests
+				assert!(degTest.len() == 5 * B);
+			},
+			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
+		};
+		println!("{:?} EC param (DT len {})", self.ID, degTest.len());
+	/*
+			Comput tests only for those who didn't dropout
+			We don't remove anyone cuz resizing array is slow
+	*/
+		let mut msg = Vec::new();	//TODO: Add more tests	
+		// D Test
+		for i in 0..N {
+			if dorpouts.contains(&(i as u64)) { 
+				// assert shares recieved aligned with dropouts
+				assert!(self.shares[i][0] == 0);
+				continue; 
+			}
+			assert!(self.shares[i][0] != 0);
+			let mut tests = vec![0u64; 7];
+			// Degree Test
+			for j in 0..5*B {
+				tests[0] += ((degTest[j] as u128) * (self.shares[i][j] as u128) % P) as u64;
+				tests[0] %= P as u64;
+			}
+			// TODO: more tests...
+			println!("{:?} calculated 7 tests {:?} for client {}", self.ID,  tests, i);
+			let mut tests_results = Vec::new();
+			for t in tests {
+				tests_results.extend((t as u64).to_le_bytes().to_vec());
+			}
+			msg.push(tests_results);
+		}
+		/* msg
+			c0: [[t1, t2....t7]
+			c1:  [t1, t2....t7]
+			...
+			cn:  [t1, t2....t7]]
+		*/
+		match send_vecs(&self.sender, msg) {
+			Ok(_) => return Ok(4),
+			Err(_) => return Err(ClientError::SendFailure(4)),
+		};
+	}
+
+	pub fn aggregation(&self) -> Result<usize, ClientError> {
+	/* 
+		 	N*N shares
+		 	Skip the rows of Ci who dropouts or fail
+		 	Send [agggregation_bytes, signature]s
+	*/
+		let V = self.vectorSize;
+		let L = self.param.unwrap().L;
+		let B = V/L;
+		let P = self.param.unwrap().P;
+
+		let waitRes = self.state_change_broadcast("AG");
+		let dropouts = match waitRes {
+			RecvType::bytes(b) => read_le_u64(b),
+			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
+		};
+		println!("{:?} aggregation, skipping {:?}", self.ID, dropouts);
+		let mut aggregation = vec![0u64; B];
+		for i in 0..self.shares.len() {
+			if !dropouts.contains(&(i as u64)) {
+				for j in 0..B {
+					aggregation[j] += ((aggregation[j] as u128 + self.shares[i][j] as u128) % P) as u64;
+				}
+			}
+		}
+		println!("{} sending aggregation {:?}", self.ID, aggregation.len());
+		let mut aggregation_bytes = Vec::new();
+		for a in aggregation.iter() {
+			aggregation_bytes.extend(a.to_le_bytes().to_vec());
 		}
 		let msg = vec![
-			asBytes.clone(),
-			self.signKey.sign(&asBytes).as_ref().to_vec()
+			aggregation_bytes.clone(),
+			self.signKey.sign(&aggregation_bytes).as_ref().to_vec()
 		];
 		match send_vecs(&self.sender, msg) {
 			Ok(_) => return Ok(3),
@@ -520,7 +538,7 @@ fn sub_task(subscriber: zmq::Socket,
 		Consume msg emmited previously, add to buffer if it's new
     */
     loop {
-        let (topic, data) = recv_broadcast1(&subscriber);
+        let (topic, data) = consume_broadcast(&subscriber);
         if buffer.read().unwrap().contains_key(&topic) {
             continue;
         }
@@ -534,6 +552,9 @@ fn sub_task(subscriber: zmq::Socket,
 
 fn read_le_u128(input: Vec<u8>) -> Vec<u128> {
     let mut res = Vec::<u128>::new();
+    if input.len() == 0 {
+    	return res;
+    }
     let mut ptr = &mut input.as_slice();
     loop {
         let (int_bytes, rest) = ptr.split_at(std::mem::size_of::<u128>());
@@ -548,6 +569,9 @@ fn read_le_u128(input: Vec<u8>) -> Vec<u128> {
 
 fn read_le_u64(input: Vec<u8>) -> Vec<u64> {
     let mut res = Vec::<u64>::new();
+    if input.len() == 0 {
+    	return res;
+    }
     let mut ptr = &mut input.as_slice();
     loop {
         let (int_bytes, rest) = ptr.split_at(std::mem::size_of::<u64>());
