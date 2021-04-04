@@ -29,6 +29,7 @@ pub fn inverse2<T: ModPow>(mut b: Vec<T>, P: T, rootTable: &Vec<T>) -> Vec<T>
 where T: Unsigned + Copy + Debug + From<u64> + PartialOrd
 {
 
+
 	let L = b.len();
 	let w = rootTable[1].modpow(P - 2.into(), P);
 	let zero = T::zero();
@@ -138,7 +139,7 @@ where T: Unsigned + Copy + Debug + From<u64> + PartialOrd
 	}
 }
 
-pub fn bit_reverse2<T>(a: &mut Vec<T>) {
+pub fn bit_reverse2<T: Debug>(a: &mut Vec<T>) {
 
 	let L = a.len();
 
@@ -195,7 +196,7 @@ pub fn trigits_len(n: usize) -> usize {
 pub fn lagrange_interpolation<T: ModPow>(points: &Vec<T>, values: &Vec<T>, roots: &Vec<T>, P: T) -> Vec<T> 
 where T: Unsigned + Copy + Debug + From<u64> + PartialOrd
 {
-	
+	assert!(points.len() == values.len());
 	let L = points.len();
 	let mut denominators: Vec<T> = Vec::new();
 

@@ -9,8 +9,8 @@ use rand::distributions::uniform::SampleUniform;
 use num_traits::{One, Zero};
 
 mod ntt;
-mod util;
-use util::*;
+pub mod util;
+pub use util::*;
 
 #[derive(Clone, Debug)]
 pub struct PackedSecretSharing<T> {
@@ -20,12 +20,13 @@ pub struct PackedSecretSharing<T> {
 	root3: T,
 	pub rootTable2: Vec<T>,
 	pub rootTable3: Vec<T>,
-
 	// degree of the sharing poly
 	degree2: usize,
 	degree3: usize,
-	num_secrets: usize,
-	num_shares: usize,
+
+	V: usize,
+	L: usize,
+	N: usize,
 }
 
 impl<T> PackedSecretSharing<T>
@@ -33,14 +34,13 @@ where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialO
 {
 
 	pub fn new(prime: T, root2: T, root3:T, 
-			   degree2: usize, degree3: usize, num_secrets: usize, num_shares: usize) -> PackedSecretSharing<T> {
-
-		assert!(num_secrets <= degree2);
+			   degree2: usize, degree3: usize, total_len: usize, packing_len: usize, num_shares: usize) -> PackedSecretSharing<T> {
+		assert!(total_len % packing_len == 0);
+		assert!(packing_len <= degree2);
 		assert!(degree2 <= num_shares);
 		assert!(num_shares <= degree3);
-
 		let mut rootTable2: Vec<T> = Vec::new();
-		for i in 0..degree2 as u64 {
+		for i in 0..degree2 {
 			rootTable2.push(root2.modpow((i as u64).into(), prime));	
 		}
 
@@ -59,136 +59,119 @@ where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialO
 
 			degree2: degree2,
 			degree3: degree3,
-			num_secrets: num_secrets,
-			num_shares: num_shares,
+			V: total_len,
+			L: packing_len,
+			N: num_shares,
 		}
 	}
 
-	pub fn share_ref<U>(&mut self, secrets: &[U]) -> Vec<U> 
+	pub fn share<U>(&mut self, secrets: &[U]) -> Vec<Vec<U>>
 	where U: TryFrom<T> + Into<T> + Copy + HasMax + SampleUniform + Unsigned + Debug,
-		  //<<U as Trait>::Type as TryFrom<T>>::Error: Debug
 		  <U as TryFrom<T>>::Error: Debug
-	{		
+	{	
+		/* Input Format
+		   [x0, ..., xv]
+		*/
+		//assert!(secrets.len() == self.V);	
 		let L2 = self.degree2;
 		let L3 = self.degree3;
+		let B = secrets.len() / self.L;
 		let zero = U::zero();
 
 		/* Convert U into T
 		T has to be a larger integer type than U to prevent overflow
 		*/
-		let mut _secrets: Vec<T> = Vec::new();
-		for s in secrets.into_iter() {
-			_secrets.push((*s).into());
-		}
-
-		assert!(_secrets.len() == self.num_secrets);
-
-		/* Pack randomness for unused transform points
-		randomness is no greater than max of U to prevent overflow
-		*/
+		let mut secret_blocks: Vec<Vec<T>> = vec![Vec::new(); B];
 		let mut rng = thread_rng();
-		println!("{:?}, {:?}", zero, U::max());
-		for i in self.num_secrets..L2 {
-			_secrets.push(rng.gen_range(zero, &U::max()).into());
+		for i in 0..B {
+			for j in 0..self.L {
+				secret_blocks[i].push(secrets[i*self.L + j].into());
+			}
+			/* Pack randomness for unused transform points
+			randomness is no greater than max of U to prevent overflow
+			*/
+			for _ in self.L..L2 {
+				secret_blocks[i].push(rng.gen_range(zero, &U::max()).into());
+			}
 		}
-
-		/* use radix2_DFT to from the poly
+		let mut ret: Vec<Vec<U>> = vec![vec![U::zero(); B]; self.N];
+		for (i, block) in secret_blocks.iter().enumerate() {
+			/* use radix2_DFT to from the poly
+			*/
+			let mut poly = ntt::inverse2(block.to_vec(), self.prime, &self.rootTable2);
+			for _ in L2 ..L3 {
+				poly.push(T::zero());
+			}
+			/* share with radix3_DFT
+			*/
+			let mut shares = ntt::transform3(poly, self.prime, &self.rootTable3);
+			for j in 0..self.N {
+				ret[j][i] = shares[j + 1].try_into().unwrap();
+			}
+		}
+		/* Return Format:
+		   [[s00, s01, ..., s0b],	//shares of party 0
+		    [s10, s11, ..., s1b],	//shares of party 1
+		    ...
+		    [sm0, sm1, ..., smb]]	//shares of party m
 		*/
-		let mut poly = ntt::inverse2(_secrets, self.prime, &self.rootTable2);
-		for _ in L2 ..L3 {
-			poly.push(T::zero());
-		}
-
-		/* share with radix3_DFT
-		*/
-		let mut shares = ntt::transform3(poly, self.prime, &self.rootTable3);
-		shares.split_off(self.num_shares);
-
-		let mut ret: Vec<U> = Vec::new();
-		for s in shares {
-			if s > U::max().into() {panic!("overflow");}
-			ret.push(s.try_into().unwrap());
-		}
-		ret
-	}
-
-	pub fn share<I, U>(&mut self, secrets: I) -> Vec<U> 
-	where I: IntoIterator<Item = U>,
-		  U: TryFrom<T> + Into<T> + Copy + HasMax + SampleUniform + Unsigned,
-		   <U as TryFrom<T>>::Error: Debug
-	{		
-		let L2 = self.degree2;
-		let L3 = self.degree3;
-		let zero = U::zero();
-
-		/* Convert U into T
-		T has to be a larger integer type than U to prevent overflow
-		*/
-		let mut _secrets: Vec<T> = Vec::new();
-		for s in secrets.into_iter() {
-			_secrets.push(s.into());
-		}
-
-		assert!(_secrets.len() == self.num_secrets);
-
-		/* Pack randomness for unused transform points
-		randomness is no greater than max of U to prevent overflow
-		*/
-		let mut rng = thread_rng();
-		for i in self.num_secrets..L2 {
-			_secrets.push(rng.gen_range(zero, &U::max()).into());
-		}
-
-		/* use radix2_DFT to from the poly
-		*/
-		let mut poly = ntt::inverse2(_secrets, self.prime, &self.rootTable2);
-		for _ in L2 ..L3 {
-			poly.push(T::zero());
-		}
-
-		/* share with radix3_DFT
-		*/
-		let mut shares = ntt::transform3(poly, self.prime, &self.rootTable3);
-		shares.split_off(self.num_shares);
-
-		let mut ret: Vec<U> = Vec::new();
-		for s in shares {
-			ret.push(s.try_into().unwrap());
-		}
 		ret
 	}
 
 
-	pub fn reconstruct<I, U>(&mut self, shares: I) -> Vec<U> 
-	where  I: IntoIterator<Item = U>,
-	   	   U: From<T> + Into<T> + Copy + HasMax + SampleUniform + Unsigned
+	pub fn reconstruct<U>(&self, shares: &[Vec<U>], shares_point: &[U]) -> Vec<U> 
+	where  U: TryFrom<T> + Into<T> + Copy + HasMax + SampleUniform + Unsigned,
+	   	   <U as TryFrom<T>>::Error: Debug
 	{
-		/* Convert U into T
+		/* Input Format:
+		   [[s00, s01, ..., s0b],	//shares of party 0
+		    [s10, s11, ..., s1b],	//shares of party 1
+		    ...
+		    [sm0, sm1, ..., smb]]	//shares of party 
+
 		Number of shares collected > than threshold
 		but smaller than initially distributed number
 		*/
-		let mut _shares: Vec<T> = Vec::new();
-		for s in shares.into_iter() {
-			_shares.push(s.into());
-		}
-		assert!(_shares.len() >= self.degree2);
-		assert!(_shares.len() <= self.degree3);
+		println!("checkpoint 1");
+		let B = self.V / self.L;
+		let M = shares_point.len();
+		assert!(shares.len() == shares_point.len());
+		assert!(M >= self.degree2);
+		assert!(M <= self.degree3);
 
-		/* Evaluation point for Lagrange Interpolation
-		Only evaluate up to the threshold to reconstruct
+		/* Convert U into T
+		For shares, transpose into polys
 		*/
-	    let mut shares_point = Vec::new();
-	    for i in 0.._shares.len() {
-	    	shares_point.push(self.root3.modpow((i as u64).into(), self.prime));
-	    }
-		self.rootTable2.split_off(self.num_secrets);
-		let constructed = ntt::lagrange_interpolation(&shares_point, &_shares, &self.rootTable2, self.prime);
+		let mut converted_ponts = Vec::<T>::new();
+		for p in shares_point {
+			converted_ponts.push((*p).into());
+		}
+		let mut converted_shares = vec![vec![T::zero(); M]; B];
+		for i in 0..M {
+			for (j, s) in shares[i].iter().enumerate() {
+				converted_shares[j][i] = (*s).into();
+			}
+		}
+		assert!(converted_ponts.len() == converted_shares[0].len());
+		/* Evaluate up till the secrets, split to disard randomness
+		Reconstruct each poly
+		*/
+		println!("checkpoint 2 {}, {}", converted_shares.len(), converted_shares[0].len());
 
 		let mut ret: Vec<U> = Vec::new();
-		for s in constructed {
-			ret.push(s.into());
+		for i in 0..B {
+			let mut secrets_block: Vec<T> = ntt::lagrange_interpolation(
+				&converted_ponts, &converted_shares[i], &self.rootTable2, self.prime
+			);
+			secrets_block.split_off(self.L);
+		println!("checkpoint 3 {}, {:?}", secrets_block.len(), secrets_block[0]);
+			for j in 0..self.L {
+				ret.push(secrets_block[j].try_into().unwrap());
+			}
 		}
+		/* Output Format
+		   [s0, ..., sv]
+		*/
 		ret		
 	}
-
 }

@@ -114,6 +114,7 @@ dependencies = [
  "aes-gcm",
  "p256",
  "pss",
+ "rand",
  "rand_core",
  "signature",
  "zmq",
