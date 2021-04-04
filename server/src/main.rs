@@ -16,9 +16,9 @@ fn main() {
     let context = zmq::Context::new();
     let (tx, rx) = mpsc::channel();
     let mut param = Param::new(
-            3073700804129980417u128,                // Prime
-            1414118249734601779u128, 20,            // Root2, 2^x degree
-            308414859194273485u128, 15,             // Root3, 3^x degree
+            3073700804129980417u64,                // Prime
+            1414118249734601779u64, 20,            // Root2, 2^x degree
+            308414859194273485u64, 15,             // Root3, 3^x degree
         );
     let mut server = Arc::new(Server::new(
         args[1].parse::<usize>().unwrap(),          // MAX clients
