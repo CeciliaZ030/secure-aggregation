@@ -5,17 +5,17 @@ fn main() {
     println!("Hello, world!");
 
     let p = 3073700804129980417u128;
-    let r2 = 437380319823159113u128;
+    let r2 = 414345200490731620u128;
     let r3 = 1697820560572790570u128;
     // 3073700804129980417, 437380319823159113, 1697820560572790570, 16, 27, 10
-    let mut pss = PackedSecretSharing::<u128>::new(p, r2, r3, 16, 27, 250, 10, 20);
+    let mut pss = PackedSecretSharing::<u128>::new(p, r2, r3, 8, 27, 200, 5, 25);
     //prime: u128, root2: u128, root3:u128, degree2: usize, degree3: usize, 
     //total_len: usize, packing_len: usize, num_shares: usize
     
     
-    let mut secrets = vec![0u64; 250];
-    for i in 0..250 {
-        secrets[i] = 100;
+    let mut secrets = vec![0u64; 200];
+    for i in 0..200 {
+        secrets[i] = i as u64;
     }
 
     let shares = pss.share(&secrets);
@@ -43,7 +43,7 @@ fn main() {
 
 // // ======================================================
     let mut shares_point = Vec::new();
-    for i in 1..20+1 {
+    for i in 1..25+1 {
         shares_point.push(r3.modpow((i as u128), p) as u64);
     }
     let secrets = pss.reconstruct(&shares, shares_point.as_slice());

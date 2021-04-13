@@ -132,7 +132,6 @@ where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialO
 		Number of shares collected > than threshold
 		but smaller than initially distributed number
 		*/
-		println!("checkpoint 1");
 		let B = self.V / self.L;
 		let M = shares_point.len();
 		assert!(shares.len() == shares_point.len());
@@ -156,7 +155,6 @@ where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialO
 		/* Evaluate up till the secrets, split to disard randomness
 		Reconstruct each poly
 		*/
-		println!("checkpoint 2 {}, {}", converted_shares.len(), converted_shares[0].len());
 
 		let mut ret: Vec<U> = Vec::new();
 		for i in 0..B {
@@ -164,7 +162,6 @@ where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialO
 				&converted_ponts, &converted_shares[i], &self.rootTable2, self.prime
 			);
 			secrets_block.split_off(self.L);
-		println!("checkpoint 3 {}, {:?}", secrets_block.len(), secrets_block[0]);
 			for j in 0..self.L {
 				ret.push(secrets_block[j].try_into().unwrap());
 			}

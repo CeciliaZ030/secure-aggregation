@@ -68,7 +68,7 @@ pub struct Client{
 	publicKey: EncodedPoint,
 
 	clientVerikeys: Vec<Vec<u8>>,
-	shareKeys: HashMap<Vec<u8>, Vec<u8>>, 	// {key: pubKey, value: shareKey}
+	shareKeys: HashMap<Vec<u8>, Vec<u8>>, 	// {key: DH pubKey, value: DH shareKey}
 	shareOrder:  Vec<Vec<u8>>,				/* [pk_c1, pk_c2, ....] 
 											all clients assign shares in this order
 											*/
@@ -489,7 +489,7 @@ impl Client{
 		for i in 0..self.shares.len() {
 			if !dropouts.contains(&(i as u64)) {
 				for j in 0..B {
-					aggregation[j] += ((aggregation[j] as u128 + self.shares[i][j] as u128) % P) as u64;
+					aggregation[j] = ((aggregation[j] as u128 + self.shares[i][j] as u128) % P) as u64;
 				}
 			}
 		}

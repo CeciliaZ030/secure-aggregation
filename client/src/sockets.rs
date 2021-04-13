@@ -12,6 +12,9 @@ pub enum RecvType {
 
 pub fn recv(socket: &Socket) -> RecvType {
 	let mut data = socket.recv_multipart(0).unwrap();
+	if data.len() == 1 && data[0] == Vec::new() {
+		return RecvType::bytes(Vec::new());
+	}
 	let mut stringRes = String::new();
 	let mut isString = true;
 	for d in &data {
@@ -39,7 +42,7 @@ pub fn recv_broadcast(socket: &Socket, topic: &str) -> Result<RecvType, ()> {
 		Ok(msg) => msg,
 		Err(_) => panic!("Failed to recieve braoadcast."),
 	};
-	if data.len() == 0 {
+	if data.len() == 1 && data[0] == Vec::new() {
 		return Ok(RecvType::bytes(Vec::new()));
 	}
 	let removed = data.remove(0);
@@ -75,8 +78,7 @@ pub fn consume_broadcast(socket: &Socket) -> (Vec<u8>, RecvType) {
 		Err(_) => panic!("Failed to recieve braoadcast."),
 	};
 	let topic = data.remove(0);
-	if str::from_utf8(&topic).unwrap() == "AG" {println!("{:?}", data);}
-	if data.len() == 0 {
+	if data.len() == 1 && data[0] == Vec::new() {
 		return (topic, RecvType::bytes(Vec::new()));
 	}
 	let mut stringRes = String::new();
