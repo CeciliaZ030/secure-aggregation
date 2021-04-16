@@ -130,6 +130,9 @@ pub fn format_clientData(profiles: &mut HashMap<Vec<u8>, Profile>,
 
 pub fn read_le_u64(input: &Vec<u8>) -> Vec<u64> {
     let mut res = Vec::<u64>::new();
+    if input.len() == 0 {
+    	return res;
+    }
     let mut ptr = &mut input.as_slice();
     loop {
         let (int_bytes, rest) = ptr.split_at(std::mem::size_of::<u64>());

@@ -148,7 +148,7 @@ impl Server {
 					Ok(mut guard) => guard,
 					Err(_) => return Err(ServerError::MutexLockFail(0)),
 				}; 
-				let shares = match self.shares.lock() {
+				let mut shares = match self.shares.lock() {
 					Ok(guard) => guard,
 					Err(_) => return Err(ServerError::MutexLockFail(0)),
 				};
@@ -167,6 +167,10 @@ impl Server {
 							format_clientData(&mut *profiles, &mut *list, "veriKey").unwrap(), 
 							"HS");
 						M = list.len();
+						for (i, c) in (&*list).iter().enumerate() {
+							print!("{}: {:?}, ",i, str::from_utf8(c).unwrap());
+						}
+						println!("");
 						timerTx.send(self.sessTime)
 					},
 					2 => {
@@ -179,16 +183,17 @@ impl Server {
 							"KE");
 						M = list.len();
 						let sharingParams = match self.malFg {
-							true => param.calculate_semi_honest(list.len(), self.V, self.D),
-							false => param.calculate_malicious(list.len(), self.V, self.D, self.T),
+							true => param.calculate_semi_honest(M, self.V, self.D),
+							false => param.calculate_malicious(M, self.V, self.D, self.T),
 						};
 						println!("sharingParams {:?}", sharingParams);
 						let mut spBytes = Vec::new();
 						for sp in sharingParams {
 							spBytes.extend(sp.to_le_bytes().to_vec());
 						}
+						*shares = vec![Vec::new(); M];
 						publish(&publisher, spBytes, "IS");
-						timerTx.send(self.sessTime)
+						timerTx.send(30000)
 					},
 					3 => {
 						/* Check dropouts from IS
@@ -204,7 +209,6 @@ impl Server {
 							}
 						}
 						dropouts.extend(new_dropouts.clone());
-					   	M = list.len();
 						/* DegreeTest: 
 						len = 5 sections * B blocks per sections
 						*/
@@ -218,34 +222,34 @@ impl Server {
 						println!("IS dropouts {:?}, EC params len {:?}", new_dropouts, msg[1].len()/8);
 						*corrections = vec![vec![vec![0; M]; M]; 7];		//TODO: more tests to come....
 						publish_vecs(&publisher, msg, "EC");
-						timerTx.send(self.sessTime)
+						timerTx.send(30000)
 					},
 					4 => {
 						/* Check dropouts from EC
 						msg = [clients who dropouts or fail tests]
 						*/
-						let mut new_dropouts = Vec::new();
 						for (i, c) in list.iter().enumerate() {
 							// didn't recv corrections from Ci
-							if corrections[0][0][i] == 0 {
-								new_dropouts.push(i); 
+							if corrections[0][0][i] == 0 && !dropouts.contains(&i) {
+								dropouts.push(i); 
 							}
 						}
-					   	let mut msg = Vec::new();					
+						println!("dropouts {:?}", dropouts);
+					   	let mut msg = vec![Vec::new(), 234234234453u64.to_le_bytes().to_vec()];
 						for i in 0..M {
-							if new_dropouts.contains(&i) { continue; }
-							if !degree_test(&corrections[0][i]) { 			//When seeing 0, skip
-								msg.extend(&(i as u64).to_le_bytes()); 
-							}
+							let is_kicked_out = dropouts.contains(&i) || !degree_test(&corrections[0][i]);
 							// TODO: other tests...
+							if is_kicked_out {
+								msg[0].extend(&(i as u64).to_le_bytes()); 
+								println!("{:?} is_kicked_out", i);
+							}
 						}
-						println!("EC dropouts & fail {:?}", msg.len());
-						dropouts.extend(new_dropouts);
-						publish(&publisher, msg, "AG");
+						println!("EC dropouts & fail {:?}", msg);
+						publish_vecs(&publisher, msg, "AG");
 						timerTx.send(self.sessTime)
 					},
 					5 => { 
-						println!("recv Aggregated Shares {:?} {}", shares.len(), shares[0].len());
+						println!("recv Aggregated Shares {:?} \n dim: {} * {}", shares, shares.len(), shares[0].len());
 						finalResult = self.reconstruction(&shares, &dropouts, &param, M);
 						break;
 						Ok(())
@@ -285,9 +289,11 @@ impl Server {
 	}
 
 	pub fn worker_task(&self, worker: Worker)-> Result<usize, ServerError> {
+		let mut EC_skip = false;
+		let mut i = 0;
 		loop {
 			let clientID = take_id(&worker.dealer);
-
+			println!("worker loop {:?}", i);
 			println!("{} Taken {:?}", 
 				worker.ID, 
 				String::from_utf8(clientID.clone()).unwrap());
@@ -298,11 +304,30 @@ impl Server {
 				1 => self.handshake(&worker, clientID, msg),
 				2 => self.key_exchange(&worker, clientID, msg),
 				3 => self.input_sharing(&worker, clientID, msg),
-				4 => self.error_correction(&worker, clientID, msg),
-				5 => self.shares_collection(&worker, clientID, msg),
+				4 => {
+					self.error_correction(&worker, clientID, msg)
+					// let res_;
+					// if !EC_skip {
+					// 	println!("EC_skip {:?}, {:?} error_correction", EC_skip, worker.ID);
+					// 	res_ = self.error_correction(&worker, clientID, msg);
+					// 	EC_skip = true;
+					// } else {
+					// 	println!("EC_skip {:?}, {:?} shares_collection", EC_skip, worker.ID);
+					// 	res_ = self.shares_collection(&worker, clientID, msg);
+					// }
+					// res_
+				},
+				5 => {
+					//println!("shares_collection msg {:?}", msg);
+					self.shares_collection(&worker, clientID, msg)
+				},
 				_ => Err(WorkerError::UnknownState(0))
 			};
-			//res.unwrap();
+			i += 1;
+			match res {
+				Ok(_) => continue,
+				Err(e) => println!("{:?}", e),
+			};
 		}
 		return Ok(0)
 	}
@@ -450,7 +475,7 @@ impl Server {
 			Ok(guard) => guard.get(&clientID).unwrap().publicKey.clone(),
 			Err(_) => return Err(WorkerError::MutexLockFail(0)),
 		}; 
-				
+
 		assert_eq!(shares.len(), listGuard.len());
 		for i in 0..shares.len() {
 			/* 
@@ -458,12 +483,14 @@ impl Server {
 			and which sharedKey to use
 			*/
 			let msg = vec![senderPk.clone(), shares[i].clone()];
+			//println!("{:?}", msg);
 			match send_vecs(&worker.dealer, msg, &listGuard[i]) {
-				Ok(_) => continue,
+				Ok(_) => {
+					//println!("share (len: {:?}) from {:?} to {:?}", 
+					//	shares[i].len(), str::from_utf8(&clientID).unwrap(), str::from_utf8(&listGuard[i]).unwrap());
+				},
 				Err(_) => return Err(WorkerError::SharingFail(3)),
 			};
-			println!("share (len: {:?}) from {:?} to {:?}", 
-				shares[i].len(), str::from_utf8(&clientID).unwrap(), str::from_utf8(&listGuard[i]).unwrap());
 		}
 		match self.clientProfiles.write() {
 			Ok(mut guard) => guard.get_mut(&clientID).unwrap().hasShared = true,
@@ -478,6 +505,7 @@ impl Server {
 	/*
 		Check client exiists
 	*/
+		println!("{:?} error_correction", worker.ID);
 		if !self.check_exist(&clientID) {
 			send(&worker.dealer,"Error: Your profile not found", &clientID);
 			return Err(WorkerError::ClientNotFound(4))
@@ -498,15 +526,16 @@ impl Server {
 				}
 				/* correctionVecs Format:
 										Test1			Test2				    Test7
-				c1's collection 	[[c11... cm1]	 [[c11... cm1]  .....  [[c11... cm1]
+				c1's collection 	[[c11... cm1]	  [c11... cm1]  .....   [c11... cm1]
 				c2's collection  	[c12... cm2]	  [c12... cm2]  .....   [c11... cm2]
 						....
-				cm's collection  	[c1m... cmm]]	 [c1m... cmm]]  .....   [c1... cmm]]
+				cm's collection  	[c1m... cmm]]	  [c1m... cmm]]  .....  [c1... cmm]]
 				*/
 				match self.correctionVecs.lock() {
 					Ok(mut guard) => {
 						for i in 0..M {
 							let testsResults_ci = read_le_u64(&m[i]);
+							if testsResults_ci.len() == 0 {continue;}
 							for j in 0..7 {
 								guard[j][i][idx] = testsResults_ci[j];
 							}
@@ -559,10 +588,8 @@ impl Server {
 	/*
 		Verify & Safe
 	*/
-
 		let verifyResult = match self.clientProfiles.read() {
 			Ok(mut guard) => {
-
 			 	let veriKey = guard.get(&clientID).unwrap().veriKey.clone();
 				veriKey.verify(
 					&msg[0], 										//shares
@@ -571,9 +598,14 @@ impl Server {
 			},
 			Err(_) => return Err(WorkerError::MutexLockFail(5)),
 		};
+		let idx = self.clientList
+				.read().unwrap()
+				.iter().position(|s| s == &clientID)
+				.unwrap();
 		match verifyResult {
 			Ok(_) => {
-				self.shares.lock().unwrap().push(read_le_u64(&msg[0]));
+				let mut shares = self.shares.lock().unwrap();
+				shares[idx] = read_le_u64(&msg[0]);
 		 		send(&worker.dealer, 
 		 			"Your aggregated shares has been save.", 
 		 			&clientID);
@@ -601,12 +633,15 @@ impl Server {
 		);
 		//println!("reconstruction param {:?}", param);
 		let mut sharesPoints = Vec::new();
+		let mut shares_remove_empty = Vec::new();
 		for i in 0..M {
-			if !dropouts.contains(&i) {
-		    	sharesPoints.push(R3.modpow((i+1) as u128, P) as u64);
+			if shares[i].len() == 0 {
+		    	continue;
 			}
+			sharesPoints.push(R3.modpow((i+1) as u128, P) as u64);
+			shares_remove_empty.push(shares[i].clone());
 		}
-		let ret = pss.reconstruct(&shares, sharesPoints.as_slice());
+		let ret = pss.reconstruct(&shares_remove_empty, sharesPoints.as_slice());
 		println!("Reconstruction DONE");
 		println!("constructed len {:?}", ret.len());
 		return Ok(ret);

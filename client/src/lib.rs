@@ -58,6 +58,7 @@ pub struct Client{
 	context: zmq::Context,
 	sender: zmq::Socket,
 
+	subRx: mpsc::Receiver<Vec<u64>>,
 	subThread :thread::JoinHandle<Result<usize, ClientError>>,
 	buffer: Arc<RwLock<HashMap<Vec<u8>, RecvType>>>,
 
@@ -84,7 +85,6 @@ impl Client{
 
     	let context = zmq::Context::new();
 		let sender = context.socket(zmq::DEALER).unwrap();
-		// let subscriber1 = context.socket(zmq::SUB).unwrap();
 
 		let mut addr1: String = "tcp://localhost:".to_owned();
 		let mut addr2: String = "tcp://localhost:".to_owned();
@@ -93,17 +93,16 @@ impl Client{
 		addr2.push_str(port2);
 		sender.set_identity(ID.as_bytes());
 		assert!(sender.connect(&addr1).is_ok());
-		// assert!(subscriber1.connect(&addr2).is_ok());
 
-		// let (tx, rx): (mpsc::Sender::<RecvType>, mpsc::Receiver::<RecvType>) = mpsc::channel();
 		let ctx = context.clone();
 		let buffer = Arc::new(RwLock::new(HashMap::<Vec<u8>, RecvType>::new()));
 		let bf = buffer.clone();
+    	let (tx, rx) = mpsc::channel();
     	let subThread = thread::spawn(move || {
     		let subscriber = ctx.socket(zmq::SUB).unwrap();
 			assert!(subscriber.connect(&addr2).is_ok());
 			subscriber.set_subscribe("".as_bytes());
-			return sub_task(subscriber, bf)
+			return sub_task(subscriber, bf, tx)
 	    });
 
 	    let signKey = SigningKey::random(&mut OsRng);
@@ -113,9 +112,8 @@ impl Client{
 
 			context: context,
 			sender: sender,
-			//subscriber: subscriber1,
 
-			// rx: rx,
+			subRx: rx,
 			subThread: subThread,
 			buffer: buffer,
 
@@ -147,7 +145,7 @@ impl Client{
 
 		match send(&self.sender, &format!("Hello, I'm {}", self.ID)) {
 			Ok(_) => (),
-			Err(_) => return Err(ClientError::SendFailure(0)),
+			Err(_) => return Err(ClientError::SendFailure(1)),
 		};
 		let msg = recv(&self.sender);
 		let sk = match msg {
@@ -156,7 +154,7 @@ impl Client{
 		};
 		match SigningKey::new(&sk) {
 			Ok(k) => self.signKey = k,
-			Err(_) => return Err(ClientError::EncryptionError(0)),
+			Err(_) => return Err(ClientError::EncryptionError(1)),
 		};
 		self.veriKey = VerifyKey::from(&self.signKey);
 
@@ -175,7 +173,7 @@ impl Client{
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
 		println!("OK from handshake");
-		return Ok(0)
+		return Ok(1)
 	}
 
 
@@ -193,7 +191,7 @@ impl Client{
 					signedPublicKey.as_ref().to_vec()];
 		match send_vecs(&self.sender, msg) {
 			Ok(_) => (),
-			Err(_) => return Err(ClientError::SendFailure(1)),
+			Err(_) => return Err(ClientError::SendFailure(2)),
 		};
 		// Server says Ok
 		let msg = recv(&self.sender);
@@ -222,12 +220,12 @@ impl Client{
 							 );
 			match shared {
 				Ok(s) => self.shareKeys.insert(pk.clone(), s.as_bytes().to_vec()),
-				Err(_) => return Err(ClientError::EncryptionError(1)),
+				Err(_) => return Err(ClientError::EncryptionError(2)),
 			};
 		}
 		self.shareOrder = publicKeys;
 		println!("{}, OK from key_exchange", self.ID);
-		return Ok(1) 
+		return Ok(2) 
 	}
 	
 
@@ -328,7 +326,7 @@ impl Client{
 			let shareKey = self.shareKeys.get(pk).unwrap();
 			let k = GenericArray::from_slice(&shareKey);
 			let cipher = Aes256Gcm::new(k);
-			let nonce = GenericArray::from_slice(b"unique nonce");
+			let nonce = GenericArray::from_slice(b"unique nonce"); //Self.pk
 			let mut shareBytes = Vec::new();
 			for r in &resultMatrix[i] {
 				shareBytes.extend(&r.to_le_bytes());
@@ -340,8 +338,8 @@ impl Client{
 		}
 		self.param = Some(param);
 		match send_vecs(&self.sender, msg) {
-			Ok(_) => return Ok(2),
-			Err(_) => return Err(ClientError::SendFailure(2)),
+			Ok(_) => return Ok(3),
+			Err(_) => return Err(ClientError::SendFailure(3)),
 		};
 	}
 
@@ -360,6 +358,20 @@ impl Client{
 		let mut cnt = 0;
 		self.shares = vec![vec![0u64]; N];
 		loop {
+			match self.subRx.try_recv() {
+				Ok(dropouts) => {
+					/* server broadcast dropouts
+					break from waiting for shares...
+					*/
+					println!("dropouts {:?}", dropouts);
+					if dropouts.len() == 0 {continue;}
+					for d in dropouts {
+						assert!(self.shares[d as usize] == vec![0u64]);
+					}
+					break;
+				},
+				Err(_) => (),
+			};
 			let mut item = [self.sender.as_poll_item(zmq::POLLIN)];
 	        zmq::poll(&mut item, 2).unwrap();
 	        if item[0].is_readable() {
@@ -375,20 +387,21 @@ impl Client{
 	        	 			},
 	        	 			None => {
 	        	 				println!("fail get client"); 
-	        	 				return Err(ClientError::UnidentifiedShare(2));
+	        	 				return Err(ClientError::UnidentifiedShare(4));
 	        	 			},
 	        	 		};
-						let nonce = GenericArray::from_slice(b"unique nonce");
+						let nonce = GenericArray::from_slice(b"unique nonce");			//pk
 			 			let plaintext = match cipher.decrypt(nonce, m[1].as_ref()) {
 			 				Ok(p) => read_le_u64(p),
 			 				Err(_) => {
 			 					println!("fail decrypt"); 
-			 					return Err(ClientError::EncryptionError(2));
+			 					return Err(ClientError::EncryptionError(4));
 			 				}
 			 			};
 			 			assert!(plaintext.len() == 5 * B);
 			 			self.shares[idx] = plaintext;
 			 			cnt += 1;
+			 			//println!("{:?} just get shres number {}, len {:?}", self.ID, cnt, self.shares[idx].len());
 	        	 	},
 	        	 	_ => return Err(ClientError::UnexpectedRecv(msg)),
 	        	 };
@@ -396,6 +409,7 @@ impl Client{
 	        };
 	        // stop when recv shares from each peer
 			if(cnt == N){
+				println!("{:?} recv all {:?} shares", self.ID, cnt);
 	        	break;
 	        }
 		}
@@ -436,25 +450,22 @@ impl Client{
 		let mut msg = Vec::new();	//TODO: Add more tests	
 		// D Test
 		for i in 0..N {
-			if dorpouts.contains(&(i as u64)) { 
-				// assert shares recieved aligned with dropouts
-				assert!(self.shares[i][0] == 0);
-				continue; 
+			let mut tests_bytes = Vec::new();
+			if !dorpouts.contains(&(i as u64)) { 
+				assert!(self.shares[i] != vec![0u64]);
+				let mut tests = vec![0u64; 7];
+				// Degree Test
+				for j in 0..5*B {
+					tests[0] += ((degTest[j] as u128) * (self.shares[i][j] as u128) % P) as u64;
+					tests[0] %= P as u64;
+				}
+				// TODO: more tests...
+				//println!("{:?} calculated 7 tests {:?} for client {}", self.ID,  tests, i);
+				for t in tests {
+					tests_bytes.extend((t as u64).to_le_bytes().to_vec());
+				}
 			}
-			assert!(self.shares[i][0] != 0);
-			let mut tests = vec![0u64; 7];
-			// Degree Test
-			for j in 0..5*B {
-				tests[0] += ((degTest[j] as u128) * (self.shares[i][j] as u128) % P) as u64;
-				tests[0] %= P as u64;
-			}
-			// TODO: more tests...
-			println!("{:?} calculated 7 tests {:?} for client {}", self.ID,  tests, i);
-			let mut tests_results = Vec::new();
-			for t in tests {
-				tests_results.extend((t as u64).to_le_bytes().to_vec());
-			}
-			msg.push(tests_results);
+			msg.push(tests_bytes);
 		}
 		/* msg
 			c0: [[t1, t2....t7]
@@ -464,7 +475,7 @@ impl Client{
 		*/
 		match send_vecs(&self.sender, msg) {
 			Ok(_) => return Ok(4),
-			Err(_) => return Err(ClientError::SendFailure(4)),
+			Err(_) => return Err(ClientError::SendFailure(5)),
 		};
 	}
 
@@ -481,7 +492,7 @@ impl Client{
 
 		let waitRes = self.state_change_broadcast("AG");
 		let dropouts = match waitRes {
-			RecvType::bytes(b) => read_le_u64(b),
+			RecvType::matrix(m) => read_le_u64(m[0].clone()),
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
 		println!("{:?} aggregation, skipping {:?}", self.ID, dropouts);
@@ -493,7 +504,7 @@ impl Client{
 				}
 			}
 		}
-		println!("{} sending aggregation {:?}", self.ID, aggregation.len());
+		//println!("{} sending aggregation[0] {:?}, len {}", self.ID, aggregation[0], aggregation.len());
 		let mut aggregation_bytes = Vec::new();
 		for a in aggregation.iter() {
 			aggregation_bytes.extend(a.to_le_bytes().to_vec());
@@ -502,11 +513,11 @@ impl Client{
 			aggregation_bytes.clone(),
 			self.signKey.sign(&aggregation_bytes).as_ref().to_vec()
 		];
-		match send_vecs(&self.sender, msg) {
-			Ok(_) => return Ok(3),
-			Err(_) => return Err(ClientError::SendFailure(2)),
+		match send_vecs(&self.sender, msg.clone()) {
+			Ok(_) => println!("{:?} sent input_sharing {:?}", self.ID, msg[0][0]),
+			Err(_) => return Err(ClientError::SendFailure(5)),
 		};
-		println!("OK from input_sharing");
+		return Ok(3);
 	}
 
 	pub fn state_change_broadcast(&self, curState: &str) -> RecvType {
@@ -531,7 +542,7 @@ impl Client{
 }
 
 fn sub_task(subscriber: zmq::Socket, 
-	buffer: Arc<RwLock<HashMap<Vec<u8>, RecvType>>>) -> Result<usize, ClientError> {
+	buffer: Arc<RwLock<HashMap<Vec<u8>, RecvType>>>, sender: mpsc::Sender<Vec<u64>>) -> Result<usize, ClientError> {
     /*
 		Subscriber thread
 		Keep recieving from socket
@@ -541,6 +552,15 @@ fn sub_task(subscriber: zmq::Socket,
         let (topic, data) = consume_broadcast(&subscriber);
         if buffer.read().unwrap().contains_key(&topic) {
             continue;
+        }
+        if topic == b"EC" {
+        	match data {
+        		RecvType::matrix(ref m) => {
+        			//println!("sub_task {:?}, {:?}", str::from_utf8(&topic).unwrap(), data[]);
+        			sender.send(read_le_u64(m[0].clone()))
+        		},
+        		_ => return Err(ClientError::UnexpectedRecv(data)),
+        	};
         }
         match buffer.write() {
             Ok(mut guard) => guard.insert(topic, data),

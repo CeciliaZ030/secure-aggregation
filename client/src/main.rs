@@ -23,14 +23,15 @@ fn main() {
 	let mut input = Vec::<u64>::new();
 	let mut rng = thread_rng();
 	for _ in 0..vectorSize {
-		input.push(rng.gen_range(0, 20));
+		input.push(1);//rng.gen_range(0, u64::MAX));
 	}
-	if input[0] != 10 {
-		client.input_sharing(&mut input).unwrap();	
-	    client.shares_collection().unwrap();
-	    client.error_correction().unwrap();
-	    client.aggregation().unwrap();
-	}
+	// if input[0] < u64::MAX/10 {
+	// 	panic!("{:?} dropout!", client.ID);
+	// }
+	client.input_sharing(&mut input).unwrap();	
+    client.shares_collection().unwrap();
+    client.error_correction().unwrap();
+    client.aggregation().unwrap();
 
 }
 

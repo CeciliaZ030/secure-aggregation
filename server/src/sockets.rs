@@ -35,6 +35,7 @@ pub fn recv(socket: &Socket) -> RecvType {
 		if data.len() == 1 {
 			return RecvType::bytes(data.pop().unwrap())
 		} else {
+			//println!("RecvType::matrix(data) {:?}", data.len());
 			return RecvType::matrix(data)
 		}
 	} else {
