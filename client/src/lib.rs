@@ -346,9 +346,11 @@ impl Client{
 		    msg.push(encryptedShares);
 		}
 		self.param = Some(param);
-		println!("State 3 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 		match send_vecs(&self.sender, msg) {
-			Ok(_) => return Ok(3),
+			Ok(_) => {
+				println!("State 3 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
+				return Ok(3)
+			},
 			Err(_) => return Err(ClientError::SendFailure(3)),
 		};
 	}
