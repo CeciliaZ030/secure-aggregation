@@ -281,7 +281,7 @@ impl Server {
 					when finish processing one client
 					*/
 					let mut stateGuard = self.STATE.write().unwrap();
-					println!("Server mpsc recieved notification {:?}, cnt {}", notification, recvCnt+1);
+					//println!("Server mpsc recieved notification {:?}, cnt {}", notification, recvCnt+1);
 					if notification == *stateGuard {
 						recvCnt += 1;
 					} 

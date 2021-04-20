@@ -1,6 +1,6 @@
 use std::str;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::convert::TryInto;
 use std::sync::*;
 use std::thread;
@@ -136,7 +136,7 @@ impl Client{
 
 
 	pub fn handshake(&mut self) -> Result<usize, ClientError> {
-
+		let BENCH_TIMER = Instant::now();
 	/*
 			Client say Helloo
 			Server send unique signKey
@@ -163,22 +163,25 @@ impl Client{
 			When state change
 			Server send a list of veriKeys
 	*/
-
+		let BEFORE = Instant::now();
 		let waitRes = self.state_change_broadcast("HS");
+		let AFTER = Instant::now();
 		match waitRes {
 			RecvType::matrix(m) => {
-				println!("{} Recieved other's vk: {:?}", self.ID, &m.len());
+				//println!("{} Recieved other's vk: {:?}", self.ID, &m.len());
 				self.clientVerikeys = m
 			},
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
 		//println!("OK from handshake");
+		println!("State 1 elapse {:?}ms ({})", 
+			(BEFORE-BENCH_TIMER+AFTER.elapsed()).as_millis(), self.ID);
 		return Ok(1)
 	}
 
 
 	pub fn key_exchange(&mut self) -> Result<usize, ClientError> {
-
+		let BENCH_TIMER = Instant::now();
 	/*		 
 			Generate Deffie-Helman key
 			Sign DH key and send
@@ -196,7 +199,7 @@ impl Client{
 		// Server says Ok
 		let msg = recv(&self.sender);
 		match msg {
-			RecvType::string(s) => println!("{}, {:?}", self.ID, s),
+			RecvType::string(s) => (),//println!("{}, {:?}", self.ID, s),
 			_ => return Err(ClientError::UnexpectedRecv(msg)),
 		};
 
@@ -206,12 +209,13 @@ impl Client{
 			and sends everyone DH key list
 			Create shared keys save as (DH pk, sharedKey)
 	*/
-
+		let BEFORE = Instant::now();
 		let waitRes = self.state_change_broadcast("KE");
 		let publicKeys = match waitRes {
 			RecvType::matrix(m) => m,
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
+		let AFTER = Instant::now();
 		//println!("{} Recieved other's pk: {:?}", self.ID,  &publicKeys.len());
 		for pk in publicKeys.iter() {
 			let shared = self.privateKey
@@ -224,13 +228,14 @@ impl Client{
 			};
 		}
 		self.shareOrder = publicKeys;
-		println!("{}, OK from key_exchange", self.ID);
+		//println!("{}, OK from key_exchange", self.ID);
+		println!("State 2 elapse {:?}ms ({})", 
+			(BEFORE-BENCH_TIMER+AFTER.elapsed()).as_millis(), self.ID);
 		return Ok(2) 
 	}
 	
 
 	pub fn input_sharing(&mut self, input: &mut Vec<u64>) -> Result<usize, ClientError> {
-
 	/*		 
 			Wait for state change
 			Recv sharing parameters
@@ -238,6 +243,8 @@ impl Client{
 	*/
 		assert!(input.len() == self.vectorSize);
 		let waitRes = self.state_change_broadcast("IS");
+		let BENCH_TIMER = Instant::now();
+
 		let sharingParams = match waitRes {
 			RecvType::bytes(m) => {
 				assert_eq!(m.len(), 6*8);
@@ -261,8 +268,7 @@ impl Client{
 		let B = V/L;
 		param.remainder = V - B * L;
 
-		println!("{} param R2: {}, R3: {}, d2: {:?}, d3: {}, L {}", self.ID, param.R2, param.R3, param.D2, param.D3, L);		
-
+		//println!("{} param R2: {}, R3: {}, d2: {:?}, d3: {}, L {}", self.ID, param.R2, param.R3, param.D2, param.D3, L);		
 		// V = B * L
 		//println!("B * L = {} * {}, N = {}",  B, L, N);
 
@@ -278,7 +284,6 @@ impl Client{
 		[a0i a1i ... 0]	//one bit of ai
 		[r1 r2 ... rm]
 	*/
-
 		// Insert y = x^2
 		let mut ySum = 0u128;
 		for i in 0..V {
@@ -286,11 +291,9 @@ impl Client{
 			input.push(y as u64);
 			ySum = (ySum + y) % param.P;
 		}
-
 		// Insert y sum
 		input.push(ySum as u64);
 		input.extend(vec![0; V-1]);
-		
 		// Insert bits of y sum
 		let mut yBitArr = Vec::<u64>::new();
 		while ySum > 0 {
@@ -304,12 +307,10 @@ impl Client{
 		for _ in yBitArr_len..V {
 			input.push(0);
 		}
-
 		// Insert random
 		for i in 0..V {
 			input.push(OsRng.next_u64());
 		}
-
 		assert!(input.len() == 5 * V);
 		let resultMatrix = pss.share(&input);
 
@@ -318,8 +319,8 @@ impl Client{
 			send [shares_c1, shares_c2, ....  ]
 	*/
 	
-		println!("finished pss: (#Clients * sharesLen) = ({} * {}).. {}", 
-			resultMatrix.len(), resultMatrix[0].len(), self.ID);
+		//println!("finished pss: (#Clients * sharesLen) = ({} * {}).. {}", 
+			//resultMatrix.len(), resultMatrix[0].len(), self.ID);
 		let mut msg = Vec::new();
 		for (i, pk) in self.shareOrder.iter().enumerate() {
 			
@@ -341,9 +342,11 @@ impl Client{
 			Ok(_) => return Ok(3),
 			Err(_) => return Err(ClientError::SendFailure(3)),
 		};
+		println!("State 3 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 	}
 
 	pub fn shares_collection(&mut self) -> Result<usize, ClientError> {
+		let BENCH_TIMER = Instant::now();
 	/* 
 			Loop to collect shares
 			For each shares, Dec(sharedKey, msg)
@@ -363,7 +366,7 @@ impl Client{
 					/* server broadcast dropouts
 					break from waiting for shares...
 					*/
-					println!("dropouts {:?}", dropouts);
+					//println!("dropouts {:?}", dropouts);
 					if dropouts.len() == 0 {continue;}
 					for d in dropouts {
 						assert!(self.shares[d as usize] == vec![0u64]);
@@ -409,10 +412,11 @@ impl Client{
 	        };
 	        // stop when recv shares from each peer
 			if(cnt == N){
-				println!("{:?} recv all {:?} shares", self.ID, cnt);
+				//println!("{:?} recv all {:?} shares", self.ID, cnt);
 	        	break;
 	        }
 		}
+		println!("State 4 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 		Ok(3)
 	}
 
@@ -429,6 +433,8 @@ impl Client{
 		let P = self.param.unwrap().P;
 		
 		let waitRes = self.state_change_broadcast("EC");
+		let BENCH_TIMER = Instant::now();
+
 		let mut dorpouts;
 		let degTest;
 		match waitRes {
@@ -477,6 +483,7 @@ impl Client{
 			Ok(_) => return Ok(4),
 			Err(_) => return Err(ClientError::SendFailure(5)),
 		};
+		println!("State 5 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 	}
 
 	pub fn aggregation(&self) -> Result<usize, ClientError> {
@@ -491,6 +498,8 @@ impl Client{
 		let P = self.param.unwrap().P;
 
 		let waitRes = self.state_change_broadcast("AG");
+		let BENCH_TIMER = Instant::now();
+
 		let dropouts = match waitRes {
 			RecvType::matrix(m) => read_le_u64(m[0].clone()),
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
@@ -514,9 +523,10 @@ impl Client{
 			self.signKey.sign(&aggregation_bytes).as_ref().to_vec()
 		];
 		match send_vecs(&self.sender, msg.clone()) {
-			Ok(_) => println!("{:?} sent input_sharing {:?}", self.ID, msg[0][0]),
+			Ok(_) => (),//println!("{:?} sent input_sharing {:?}", self.ID, msg[0][0]),
 			Err(_) => return Err(ClientError::SendFailure(5)),
 		};
+		println!("State 6 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 		return Ok(3);
 	}
 
@@ -525,7 +535,7 @@ impl Client{
 		When state change
 		loops till recieving information from subscriber buffer
 	*/
-		println!("{} waiting in {} ....", self.ID, curState);
+		//println!("{} waiting in {} ....", self.ID, curState);
 		let curState = curState.as_bytes().as_ref();
 		loop {
 			match self.buffer.read() {
