@@ -173,10 +173,9 @@ impl Server {
 							format_clientData(&mut *profiles, &mut *list, "veriKey").unwrap(), 
 							"HS");
 						M = list.len();
-						for (i, c) in (&*list).iter().enumerate() {
-							print!("{}: {:?}, ",i, str::from_utf8(c).unwrap());
-						}
-						println!("");
+						// for (i, c) in (&*list).iter().enumerate() {
+						// 	print!("{}: {:?}, ",i, str::from_utf8(c).unwrap());
+						// }
 						timerTx.send(self.sessTime)
 					},
 					2 => {
@@ -199,7 +198,7 @@ impl Server {
 						}
 						*shares = vec![Vec::new(); M];
 						publish(&publisher, spBytes, "IS");
-						timerTx.send(30000)
+						timerTx.send(self.sessTime)
 					},
 					3 => {
 						/* Check dropouts from IS
@@ -290,7 +289,7 @@ impl Server {
 				Err(_) => continue,
 			}
 		}
-		println!("finalResult {:?}", finalResult);
+		//println!("finalResult {:?}", finalResult);
 		return Ok(0)
 	}
 
@@ -433,7 +432,7 @@ impl Server {
 		Check client exiists
 		Get the share and delivery target
 	*/
-		println!("{:?} in input_sharing", worker.ID);
+		//println!("{:?} in input_sharing", worker.ID);
 		if !self.check_exist(&clientID) {
 			send(&worker.dealer,"Error: Your profile not found", &clientID);
 			return Err(WorkerError::ClientNotFound(3))
