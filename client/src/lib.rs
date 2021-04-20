@@ -172,7 +172,7 @@ impl Client{
 			},
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
-		println!("OK from handshake");
+		//println!("OK from handshake");
 		return Ok(1)
 	}
 
@@ -212,7 +212,7 @@ impl Client{
 			RecvType::matrix(m) => m,
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
-		println!("{} Recieved other's pk: {:?}", self.ID,  &publicKeys.len());
+		//println!("{} Recieved other's pk: {:?}", self.ID,  &publicKeys.len());
 		for pk in publicKeys.iter() {
 			let shared = self.privateKey
 							 .diffie_hellman(
@@ -264,7 +264,7 @@ impl Client{
 		println!("{} param R2: {}, R3: {}, d2: {:?}, d3: {}, L {}", self.ID, param.R2, param.R3, param.D2, param.D3, L);		
 
 		// V = B * L
-		println!("B * L = {} * {}, N = {}",  B, L, N);
+		//println!("B * L = {} * {}, N = {}",  B, L, N);
 
 		let mut pss = PackedSecretSharing::new(
 			param.P, param.R2, param.R3, 
@@ -442,7 +442,7 @@ impl Client{
 			},
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
-		println!("{:?} EC param (DT len {})", self.ID, degTest.len());
+		//println!("{:?} EC param (DT len {})", self.ID, degTest.len());
 	/*
 			Comput tests only for those who didn't dropout
 			We don't remove anyone cuz resizing array is slow
@@ -495,7 +495,7 @@ impl Client{
 			RecvType::matrix(m) => read_le_u64(m[0].clone()),
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
-		println!("{:?} aggregation, skipping {:?}", self.ID, dropouts);
+		//println!("{:?} aggregation, skipping {:?}", self.ID, dropouts);
 		let mut aggregation = vec![0u64; B];
 		for i in 0..self.shares.len() {
 			if !dropouts.contains(&(i as u64)) {
