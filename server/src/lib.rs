@@ -167,6 +167,7 @@ impl Server {
 				};
 				let res = match *stateGuard {
 					1 => {
+						if recvCnt == 0 {panic!("No one joins!");}
 						publish_vecs(
 							&publisher, 
 							format_clientData(&mut *profiles, &mut *list, "veriKey").unwrap(), 
