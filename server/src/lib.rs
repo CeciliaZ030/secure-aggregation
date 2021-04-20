@@ -142,7 +142,7 @@ impl Server {
 				// println!("\n timesUp {:?}", tu);
 				M = *self.MAX.write().unwrap();
 				let mut stateGuard = self.STATE.write().unwrap();
-				println!("State {} elapse {:?}ms", *stateGuard, BENCH_TIMER.elapsed().as_millis());
+				println!("- State {} elapse {:?}ms", *stateGuard, BENCH_TIMER.elapsed().as_millis());
 				BENCH_TIMER = Instant::now();
 
 				let mut list = match self.clientList.write() {
