@@ -8,6 +8,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::sync::*;
 use std::convert::TryInto;
+use std::time::{Duration, Instant};
 
 use rand_core::{RngCore, OsRng};
 
@@ -130,6 +131,7 @@ impl Server {
 		let mut recvCnt = 0;
 		let mut finalResult;
 		let mut dropouts = Vec::new();
+		let mut BENCH_TIMER = Instant::now();
 		loop {
 			/* when finished client num exceed MAX
 			initiate state change
@@ -137,9 +139,12 @@ impl Server {
 			let tu =  (*timesUp.read().unwrap()).clone();
 			let mut M = *self.MAX.read().unwrap();
 			if tu || recvCnt >= M {
-				println!("\n timesUp {:?}", tu);
+				// println!("\n timesUp {:?}", tu);
 				M = *self.MAX.write().unwrap();
 				let mut stateGuard = self.STATE.write().unwrap();
+				println!("State {} elapse {:?}ms", *stateGuard, BENCH_TIMER.elapsed().as_millis());
+				BENCH_TIMER = Instant::now();
+
 				let mut list = match self.clientList.write() {
 					Ok(mut guard) => guard,
 					Err(_) => return Err(ServerError::MutexLockFail(0)),
@@ -249,7 +254,7 @@ impl Server {
 						timerTx.send(self.sessTime)
 					},
 					5 => { 
-						println!("recv Aggregated Shares {:?} \n dim: {} * {}", shares, shares.len(), shares[0].len());
+						//println!("recv Aggregated Shares {:?} \n dim: {} * {}", shares, shares.len(), shares[0].len());
 						finalResult = self.reconstruction(&shares, &dropouts, &param, M);
 						break;
 						Ok(())
@@ -293,10 +298,10 @@ impl Server {
 		let mut i = 0;
 		loop {
 			let clientID = take_id(&worker.dealer);
-			println!("worker loop {:?}", i);
-			println!("{} Taken {:?}", 
-				worker.ID, 
-				String::from_utf8(clientID.clone()).unwrap());
+			// println!("worker loop {:?}", i);
+			// println!("{} Taken {:?}", 
+				// worker.ID, 
+				// String::from_utf8(clientID.clone()).unwrap());
 
 			let msg = recv(&worker.dealer);
 
@@ -304,24 +309,9 @@ impl Server {
 				1 => self.handshake(&worker, clientID, msg),
 				2 => self.key_exchange(&worker, clientID, msg),
 				3 => self.input_sharing(&worker, clientID, msg),
-				4 => {
-					self.error_correction(&worker, clientID, msg)
-					// let res_;
-					// if !EC_skip {
-					// 	println!("EC_skip {:?}, {:?} error_correction", EC_skip, worker.ID);
-					// 	res_ = self.error_correction(&worker, clientID, msg);
-					// 	EC_skip = true;
-					// } else {
-					// 	println!("EC_skip {:?}, {:?} shares_collection", EC_skip, worker.ID);
-					// 	res_ = self.shares_collection(&worker, clientID, msg);
-					// }
-					// res_
-				},
-				5 => {
-					//println!("shares_collection msg {:?}", msg);
-					self.shares_collection(&worker, clientID, msg)
-				},
-				_ => Err(WorkerError::UnknownState(0))
+				4 => self.error_correction(&worker, clientID, msg),
+				5 => self.shares_collection(&worker, clientID, msg),
+				_ => Err(WorkerError::UnknownState(0)),
 			};
 			i += 1;
 			match res {
@@ -376,7 +366,7 @@ impl Server {
 			Err(guard) => return Err(WorkerError::MutexLockFail(1)),
 		};
 		worker.threadSender.send(1);
-		println!("handshaked with {:?}", std::str::from_utf8(&clientID).unwrap());
+		//println!("handshaked with {:?}", std::str::from_utf8(&clientID).unwrap());
 		return Ok(1);
 	}
 
@@ -431,7 +421,7 @@ impl Server {
 			},
 		}
  		worker.threadSender.send(2);
- 		println!("key_exchanged with {:?}", std::str::from_utf8(&clientID).unwrap());
+ 		//println!("key_exchanged with {:?}", std::str::from_utf8(&clientID).unwrap());
 		return Ok(2)
 	}
 
@@ -505,7 +495,7 @@ impl Server {
 	/*
 		Check client exiists
 	*/
-		println!("{:?} error_correction", worker.ID);
+		//println!("{:?} error_correction", worker.ID);
 		if !self.check_exist(&clientID) {
 			send(&worker.dealer,"Error: Your profile not found", &clientID);
 			return Err(WorkerError::ClientNotFound(4))
@@ -551,7 +541,7 @@ impl Server {
 				return Err(WorkerError::UnexpectedFormat(4))
 			},
 		};
-		println!("error_correction doen");
+		//println!("error_correction doen");
 		worker.threadSender.send(4);
 		return Ok(4);
 	}
@@ -642,8 +632,8 @@ impl Server {
 			shares_remove_empty.push(shares[i].clone());
 		}
 		let ret = pss.reconstruct(&shares_remove_empty, sharesPoints.as_slice());
-		println!("Reconstruction DONE");
-		println!("constructed len {:?}", ret.len());
+		//println!("Reconstruction DONE");
+		//println!("constructed len {:?}", ret.len());
 		return Ok(ret);
 	}
 
