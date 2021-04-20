@@ -53,6 +53,7 @@ pub struct Server {
 	D: usize,											// Dropouts
 	T: usize,											// Corruptions
 	sessTime: usize,									// Time allowed for each state
+	ISsessTime: usize,									// Time allowed for each state
 	malFg: bool,
 	param: RwLock<Param>,
 	clientList: RwLock<Vec<Vec<u8>>>,					// array of ID
@@ -65,7 +66,7 @@ pub struct Server {
 impl Server {
 
 	pub fn new(maxClients: usize, 
-		vectorSize: usize, dropouts: usize, sessionTime: usize, 
+		vectorSize: usize, dropouts: usize, sessionTime: usize, ISsessTime: usize,
 		corruption: usize, malicious: bool, mut param: Param) -> Server {
 		Server {
 			STATE: RwLock::new(1usize),
@@ -74,6 +75,7 @@ impl Server {
 			D: dropouts,
 			T: corruption,
 			sessTime: sessionTime,
+			ISsessTime: ISsessTime,
 			malFg: malicious,
 			param: RwLock::new(param),
 			clientList: RwLock::new(Vec::new()),
@@ -227,7 +229,7 @@ impl Server {
 						println!("IS dropouts {:?}, EC params len {:?}", new_dropouts, msg[1].len()/8);
 						*corrections = vec![vec![vec![0; M]; M]; 7];		//TODO: more tests to come....
 						publish_vecs(&publisher, msg, "EC");
-						timerTx.send(self.sessTime)
+						timerTx.send(self.ISsessTime)
 					},
 					4 => {
 						/* Check dropouts from EC

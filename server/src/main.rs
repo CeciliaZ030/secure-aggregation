@@ -25,8 +25,9 @@ fn main() {
         args[2].parse::<usize>().unwrap(),          // Vector Length
         args[3].parse::<usize>().unwrap(),          // Dropouts
         args[4].parse::<usize>().unwrap(),          // Session time
-        args[5].parse::<usize>().unwrap(),           // Corrupted Parties
-        args[6].parse::<bool>().unwrap(),           // Malicious Flag
+        args[5].parse::<usize>().unwrap(),          // IS Session time
+        args[6].parse::<usize>().unwrap(),           // Corrupted Parties
+        args[7].parse::<bool>().unwrap(),           // Malicious Flag
         param
     ));
 

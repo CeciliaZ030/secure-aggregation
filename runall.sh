@@ -1,7 +1,7 @@
 #! /bin/bash
 
 cd server
-cargo run $1 $2 $3 $4 $5 $6 &
+cargo run $1 $2 $3 $4 $5 $6 $7&
 
 cd ..
 cd client
