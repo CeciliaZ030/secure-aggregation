@@ -17,36 +17,29 @@ fn main() {
     for i in 0..200 {
         secrets[i] = i as u64;
     }
+    let mut secrets2 = vec![0u64; 200];
+    for i in 0..200 {
+        secrets2[i] = i as u64;
+    }
 
     let shares = pss.share(&secrets);
+    let shares2 = pss.share(&secrets2);
     println!("{:?} * {}", shares.len(), shares[0].len());
     println!("{:?}", shares);
 
-//     let secrets = vec![5u64; 200];
-//     let secrets2 = vec![9u64; 200];
-
-//     let mut rawSumm = Vec::new();
-//     for i in 0..secrets.len() {
-//         rawSumm.push(secrets[i] + secrets2[i]);
-//     }
-
-//     let shares = pss.share_ref(&secrets);
-//     println!("{:?} * {:?}", shares.len(), shares[0].len());
-//     let shares2 = pss.share_ref(&secrets2);
-//     //println!("{:?}", shares2);
+    let mut added_shares = vec![vec![0; shares[0].len()]; shares.len()];
+    for i in 0..shares.len() {
+        for j in 0..shares[0].len() {
+            added_shares[i][j] = shares[i][j] + shares2[i][j];
+        }
+    }
 
 
-//     // let mut sum = vec![0u128; 10];
-//     // for i in 0..10 {
-//     //     sum[i] = (shares[i] + shares2[i]) as u128;
-//     // }
-
-// // ======================================================
     let mut shares_point = Vec::new();
     for i in 1..25+1 {
         shares_point.push(r3.modpow((i as u128), p) as u64);
     }
-    let secrets = pss.reconstruct(&shares, shares_point.as_slice());
+    let secrets = pss.reconstruct(&added_shares.as_slice(), shares_point.as_slice());
 
     println!("{:?}", secrets);
 //     //println!("{:?}", rawSumm);
