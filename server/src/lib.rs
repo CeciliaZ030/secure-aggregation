@@ -200,7 +200,7 @@ impl Server {
 						}
 						*shares = vec![Vec::new(); M];
 						publish(&publisher, spBytes, "IS");
-						timerTx.send(self.sessTime)
+						timerTx.send(self.ISsessTime)
 					},
 					3 => {
 						/* Check dropouts from IS
@@ -229,7 +229,7 @@ impl Server {
 						println!("IS dropouts {:?}, EC params len {:?}", new_dropouts, msg[1].len()/8);
 						*corrections = vec![vec![vec![0; M]; M]; 7];		//TODO: more tests to come....
 						publish_vecs(&publisher, msg, "EC");
-						timerTx.send(self.ISsessTime)
+						timerTx.send(self.sessTime)
 					},
 					4 => {
 						/* Check dropouts from EC
