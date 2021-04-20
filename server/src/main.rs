@@ -1,3 +1,9 @@
+#![allow(unused_imports)]
+#![allow(non_snake_case)]
+#![allow(non_camel_case_types)]
+#![allow(dead_code)]
+#![allow(unused_must_use)]
+
 use std::str;
 use std::sync::*;
 use std::thread;
@@ -15,12 +21,12 @@ fn main() {
 	println!("hello");
     let context = zmq::Context::new();
     let (tx, rx) = mpsc::channel();
-    let mut param = Param::new(
+    let param = Param::new(
             3073700804129980417u64,                // Prime
             1414118249734601779u64, 20,            // Root2, 2^x degree
             308414859194273485u64, 15,             // Root3, 3^x degree
         );
-    let mut server = Arc::new(Server::new(
+    let server = Arc::new(Server::new(
         args[1].parse::<usize>().unwrap(),          // MAX clients
         args[2].parse::<usize>().unwrap(),          // Vector Length
         args[3].parse::<usize>().unwrap(),          // Dropouts

@@ -1,7 +1,3 @@
-#![allow(unused_imports)]
-#![allow(non_snake_case)]
-#![allow(non_camel_case_types)]
-
 use std::collections::HashMap;
 use std::str;
 use std::thread;

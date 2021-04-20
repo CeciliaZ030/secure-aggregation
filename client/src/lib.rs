@@ -1,3 +1,9 @@
+#![allow(unused_imports)]
+#![allow(non_snake_case)]
+#![allow(non_camel_case_types)]
+#![allow(dead_code)]
+#![allow(unused_must_use)]
+
 use std::str;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -312,8 +318,10 @@ impl Client{
 			input.push(OsRng.next_u64());
 		}
 		assert!(input.len() == 5 * V);
-		let resultMatrix = pss.share(&input);
 
+		let SHARE_START = Instant::now();
+		let resultMatrix = pss.share(&input);
+		println!("{:?} sharing time {:?}", self.ID, SHARE_START.elapsed().as_millis());
 	/* 
 		 	Encrypt shares for each DH sharedKey
 			send [shares_c1, shares_c2, ....  ]
@@ -338,11 +346,11 @@ impl Client{
 		    msg.push(encryptedShares);
 		}
 		self.param = Some(param);
+		println!("State 3 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 		match send_vecs(&self.sender, msg) {
 			Ok(_) => return Ok(3),
 			Err(_) => return Err(ClientError::SendFailure(3)),
 		};
-		println!("State 3 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 	}
 
 	pub fn shares_collection(&mut self) -> Result<usize, ClientError> {
