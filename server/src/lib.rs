@@ -227,7 +227,7 @@ impl Server {
 						println!("IS dropouts {:?}, EC params len {:?}", new_dropouts, msg[1].len()/8);
 						*corrections = vec![vec![vec![0; M]; M]; 7];		//TODO: more tests to come....
 						publish_vecs(&publisher, msg, "EC");
-						timerTx.send(30000)
+						timerTx.send(self.sessTime)
 					},
 					4 => {
 						/* Check dropouts from EC
