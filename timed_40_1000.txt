@@ -1,0 +1,363 @@
+Client 0
+Client 1
+Client 2
+Client 3
+Client 4
+Client 5
+Client 6
+Client 7
+Client 8
+Client 9
+Client 10
+hello
+prime 3073700804129980417
+rootTwos [0, 3073700804129980416, 48123647995213473, 414345200490731620, 437380319823159113, 700305079945433357, 2462566883598574694, 667632013081810335, 2084132838470242215, 231059600000505185, 533143422376310736, 1288510276932018321, 356116677472641586, 1137714900568601731, 166706197685449053, 185228267370228670, 2895001145261225276, 2342921527381056840, 722168054604968797, 821092576347561346, 1414118249734601779], 20
+rootThrees [0, 2632356178919102469, 2538470489641169034, 1697820560572790570, 1188866194714075022, 1884064513568972269, 64543017631340700, 1937907544692674569, 1506635237690773038, 2973529386614196309, 801543298049938745, 2867893238934135112, 2055672124361686519, 2589561880801976545, 2887552414139430178, 308414859194273485], 15
+tcp://*:9999
+spawning 0
+Start 2500
+spawning 2
+spawning 3
+spawning 4
+spawning 5
+spawning 6
+spawning 7
+spawning 8
+spawning 1
+spawning 10
+spawning 9
+Client 11
+Client 12
+Client 13
+Client 14
+Client 15
+Client 16
+Client 17
+Client 18
+Client 19
+Client 20
+Client 21
+Client 22
+Client 23
+Client 24
+Client 25
+Client 26
+Client 27
+Client 28
+Client 29
+Client 30
+Client 31
+Client 32
+Client 33
+Client 34
+Client 35
+Client 36
+Client 37
+Client 38
+Client 39
+- State 1 elapse 401ms
+State 1 elapse 8ms (Client 13)
+State 1 elapse 189ms (Client 7)
+State 1 elapse 10ms (Client 39)
+State 1 elapse 7ms (Client 27)
+State 1 elapse 12ms (Client 23)
+State 1 elapse 16ms (Client 16)
+State 1 elapse 12ms (Client 35)
+State 1 elapse 12ms (Client 31)
+State 1 elapse 9ms (Client 20)
+State 1 elapse 7ms (Client 36)
+State 1 elapse 190ms (Client 4)
+State 1 elapse 12ms (Client 10)
+State 1 elapse 12ms (Client 24)
+State 1 elapse 11ms (Client 14)
+State 1 elapse 188ms (Client 0)
+State 1 elapse 10ms (Client 18)
+State 1 elapse 11ms (Client 32)
+State 1 elapse 7ms (Client 25)
+State 1 elapse 9ms (Client 33)
+State 1 elapse 192ms (Client 8)
+State 1 elapse 185ms (Client 5)
+State 1 elapse 12ms (Client 21)
+State 1 elapse 11ms (Client 15)
+State 1 elapse 12ms (Client 28)
+State 1 elapse 10ms (Client 22)
+State 1 elapse 184ms (Client 1)
+State 1 elapse 7ms (Client 30)
+State 1 elapse 187ms (Client 3)
+State 1 elapse 12ms (Client 26)
+State 1 elapse 11ms (Client 12)
+State 1 elapse 7ms (Client 19)
+State 1 elapse 11ms (Client 37)
+State 1 elapse 13ms (Client 17)
+State 1 elapse 186ms (Client 6)
+State 1 elapse 12ms (Client 34)
+State 1 elapse 12ms (Client 11)
+State 1 elapse 193ms (Client 9)
+State 1 elapse 11ms (Client 29)
+State 1 elapse 188ms (Client 2)
+State 1 elapse 9ms (Client 38)
+Server: STATE change from 1 to 2
+Restart 2500
+- State 2 elapse 476ms
+deg2 < n - (d 0 + 2t 0) = reconstructLimit 40
+deg2 32 = blocklenth 25 + corruption 0
+sharingParams [3073700804129980417, 700305079945433357, 1188866194714075022, 32, 81, 25]
+pushing IS
+Server: STATE change from 2 to 3
+Restart 300000
+State 2 elapse 2806ms (Client 10)
+State 2 elapse 2891ms (Client 38)
+State 2 elapse 2908ms (Client 23)
+State 2 elapse 2936ms (Client 13)
+State 2 elapse 2822ms (Client 4)
+State 2 elapse 2932ms (Client 25)
+State 2 elapse 2955ms (Client 36)
+State 2 elapse 2950ms (Client 2)
+State 2 elapse 2936ms (Client 0)
+State 2 elapse 2933ms (Client 1)
+State 2 elapse 2975ms (Client 7)
+State 2 elapse 2973ms (Client 34)
+State 2 elapse 2986ms (Client 21)
+State 2 elapse 3056ms (Client 15)
+State 2 elapse 2962ms (Client 20)
+State 2 elapse 2979ms (Client 16)
+State 2 elapse 2959ms (Client 37)
+State 2 elapse 2982ms (Client 24)
+State 2 elapse 2998ms (Client 35)
+State 2 elapse 2970ms (Client 26)
+State 2 elapse 3025ms (Client 32)
+State 2 elapse 3070ms (Client 18)
+State 2 elapse 3004ms (Client 30)
+State 2 elapse 3031ms (Client 8)
+State 2 elapse 3146ms (Client 14)
+State 2 elapse 3042ms (Client 33)
+State 2 elapse 3066ms (Client 11)
+State 2 elapse 3067ms (Client 9)
+State 2 elapse 3013ms (Client 29)
+State 2 elapse 3076ms (Client 39)
+State 2 elapse 3041ms (Client 6)
+State 2 elapse 3212ms (Client 5)
+State 2 elapse 3208ms (Client 22)
+State 2 elapse 3304ms (Client 3)
+State 2 elapse 3353ms (Client 19)
+State 2 elapse 3284ms (Client 27)
+State 2 elapse 3340ms (Client 31)
+State 2 elapse 3213ms (Client 28)
+State 2 elapse 3379ms (Client 12)
+State 2 elapse 3273ms (Client 17)
+"Client 35" sharing time 305
+"Client 10" sharing time 325
+"Client 8" sharing time 348
+"Client 39" sharing time 332
+"Client 25" sharing time 368
+"Client 19" sharing time 328
+"Client 11" sharing time 373
+"Client 26" sharing time 396
+"Client 34" sharing time 386
+"Client 6" sharing time 380
+"Client 3" sharing time 380
+"Client 30" sharing time 412
+"Client 29" sharing time 392
+"Client 24" sharing time 428
+"Client 28" sharing time 425
+"Client 4" sharing time 312
+"Client 16" sharing time 385
+"Client 17" sharing time 412
+"Client 20" sharing time 360
+"Client 2" sharing time 348
+"Client 38" sharing time 424
+"Client 37" sharing time 445
+"Client 21" sharing time 409
+"Client 14" sharing time 429
+"Client 32" sharing time 442
+"Client 31" sharing time 452
+"Client 9" sharing time 425
+"Client 12" sharing time 365
+"Client 18" sharing time 468
+"Client 1" sharing time 454
+"Client 27" sharing time 340
+"Client 23" sharing time 399
+"Client 0" sharing time 369
+"Client 15" sharing time 455
+"Client 22" sharing time 453
+"Client 7" sharing time 470
+"Client 13" sharing time 468
+"Client 33" sharing time 436
+"Client 5" sharing time 372
+"Client 36" sharing time 494
+State 3 elapse 1245ms (Client 35)
+State 3 elapse 1299ms (Client 25)
+State 3 elapse 1288ms (Client 11)
+State 3 elapse 1294ms (Client 10)
+State 3 elapse 1297ms (Client 34)
+State 3 elapse 1312ms (Client 14)
+State 3 elapse 1286ms (Client 19)
+State 3 elapse 1313ms (Client 17)
+State 3 elapse 1306ms (Client 39)
+State 3 elapse 1332ms (Client 8)
+State 3 elapse 1337ms (Client 32)
+State 3 elapse 1307ms (Client 16)
+State 3 elapse 1320ms (Client 6)
+State 3 elapse 1352ms (Client 30)
+State 3 elapse 1338ms (Client 9)
+State 3 elapse 1334ms (Client 21)
+State 3 elapse 1350ms (Client 1)
+State 3 elapse 1370ms (Client 24)
+State 3 elapse 1295ms (Client 20)
+State 3 elapse 1359ms (Client 38)
+State 3 elapse 1347ms (Client 29)
+State 3 elapse 1368ms (Client 36)
+State 3 elapse 1354ms (Client 15)
+State 3 elapse 1310ms (Client 23)
+State 3 elapse 1392ms (Client 28)
+State 3 elapse 1308ms (Client 2)
+State 3 elapse 1360ms (Client 22)
+State 3 elapse 1362ms (Client 3)
+State 3 elapse 1308ms (Client 12)
+State 3 elapse 1410ms (Client 31)
+State 3 elapse 1414ms (Client 37)
+State 3 elapse 1399ms (Client 26)
+State 3 elapse 1299ms (Client 4)
+State 3 elapse 1386ms (Client 13)
+State 3 elapse 1423ms (Client 18)
+State 3 elapse 1403ms (Client 7)
+State 3 elapse 1296ms (Client 27)
+State 3 elapse 1367ms (Client 33)
+State 3 elapse 1355ms (Client 0)
+State 3 elapse 1346ms (Client 5)
+- State 3 elapse 5429ms
+IS dropouts [], EC params len 200
+Server: STATE change from 3 to 4
+Restart 2500
+State 4 elapse 972ms (Client 35)
+State 4 elapse 953ms (Client 10)
+State 4 elapse 962ms (Client 11)
+State 4 elapse 982ms (Client 25)
+State 4 elapse 981ms (Client 34)
+State 4 elapse 973ms (Client 39)
+State 4 elapse 962ms (Client 6)
+State 4 elapse 988ms (Client 19)
+State 4 elapse 980ms (Client 8)
+State 4 elapse 934ms (Client 2)
+State 4 elapse 936ms (Client 4)
+State 4 elapse 937ms (Client 31)
+State 4 elapse 987ms (Client 20)
+State 4 elapse 996ms (Client 9)
+State 4 elapse 947ms (Client 26)
+State 4 elapse 963ms (Client 28)
+State 4 elapse 953ms (Client 37)
+State 4 elapse 965ms (Client 3)
+State 4 elapse 901ms (Client 0)
+State 4 elapse 901ms (Client 5)
+State 4 elapse 947ms (Client 33)
+State 4 elapse 1026ms (Client 1)
+State 4 elapse 1011ms (Client 15)
+State 4 elapse 1033ms (Client 24)
+State 4 elapse 1029ms (Client 36)
+State 4 elapse 1049ms (Client 38)
+State 4 elapse 1065ms (Client 30)
+State 4 elapse 1028ms (Client 22)
+State 4 elapse 997ms (Client 27)
+State 4 elapse 1066ms (Client 21)
+State 4 elapse 1037ms (Client 13)
+State 4 elapse 1064ms (Client 23)
+State 4 elapse 1090ms (Client 29)
+State 4 elapse 1044ms (Client 7)
+State 4 elapse 1143ms (Client 17)
+State 4 elapse 1127ms (Client 16)
+State 4 elapse 1138ms (Client 32)
+State 4 elapse 1154ms (Client 14)
+State 4 elapse 1079ms (Client 12)
+State 4 elapse 1066ms (Client 18)
+- State 4 elapse 1012ms
+dropouts []
+EC dropouts & fail [[], [85, 198, 114, 137, 54, 0, 0, 0]]
+Server: STATE change from 4 to 5
+Restart 2500
+State 6 elapse 16ms (Client 39)
+Total elapse 7009ms (Client 39)
+State 6 elapse 11ms (Client 35)
+Total elapse 7054ms (Client 35)
+State 6 elapse 18ms (Client 11)
+Total elapse 7411ms (Client 11)
+State 6 elapse 26ms (Client 5)
+Total elapse 7484ms (Client 5)
+State 6 elapse 46ms (Client 38)
+Total elapse 7063ms (Client 38)
+State 6 elapse 18ms (Client 4)
+Total elapse 7519ms (Client 4)
+State 6 elapse 57ms (Client 36)
+Total elapse 7087ms (Client 36)
+State 6 elapse 71ms (Client 6)
+Total elapse 7498ms (Client 6)
+State 6 elapse 55ms (Client 9)
+Total elapse 7467ms (Client 9)
+State 6 elapse 46ms (Client 17)
+Total elapse 7352ms (Client 17)
+State 6 elapse 51ms (Client 7)
+Total elapse 7493ms (Client 7)
+State 6 elapse 74ms (Client 13)
+Total elapse 7420ms (Client 13)
+State 6 elapse 86ms (Client 15)
+Total elapse 7390ms (Client 15)
+State 6 elapse 94ms (Client 21)
+Total elapse 7300ms (Client 21)
+State 6 elapse 50ms (Client 20)
+Total elapse 7316ms (Client 20)
+State 6 elapse 70ms (Client 24)
+Total elapse 7260ms (Client 24)
+State 6 elapse 78ms (Client 25)
+Total elapse 7251ms (Client 25)
+State 6 elapse 94ms (Client 31)
+Total elapse 7174ms (Client 31)
+State 6 elapse 34ms (Client 26)
+Total elapse 7240ms (Client 26)
+State 6 elapse 42ms (Client 2)
+Total elapse 7567ms (Client 2)
+State 6 elapse 89ms (Client 8)
+Total elapse 7494ms (Client 8)
+State 6 elapse 51ms (Client 1)
+Total elapse 7574ms (Client 1)
+State 6 elapse 72ms (Client 28)
+Total elapse 7215ms (Client 28)
+State 6 elapse 103ms (Client 27)
+State 6 elapse 40ms (Client 34)
+Total elapse 7228ms (Client 27)
+Total elapse 7142ms (Client 34)
+State 6 elapse 111ms (Client 18)
+Total elapse 7362ms (Client 18)
+State 6 elapse 98ms (Client 23)
+Total elapse 7285ms (Client 23)
+State 6 elapse 116ms (Client 19)
+Total elapse 7344ms (Client 19)
+State 6 elapse 71ms (Client 33)
+Total elapse 7164ms (Client 33)
+State 6 elapse 52ms (Client 30)
+Total elapse 7199ms (Client 30)
+State 6 elapse 65ms (Client 14)
+Total elapse 7426ms (Client 14)
+State 6 elapse 61ms (Client 3)
+Total elapse 7561ms (Client 3)
+State 6 elapse 57ms (Client 0)
+Total elapse 7601ms (Client 0)
+State 6 elapse 94ms (Client 10)
+Total elapse 7480ms (Client 10)
+State 6 elapse 82ms (Client 37)
+Total elapse 7113ms (Client 37)
+State 6 elapse 110ms (Client 22)
+Total elapse 7308ms (Client 22)
+State 6 elapse 19ms (Client 12)
+Total elapse 7455ms (Client 12)
+State 6 elapse 27ms (Client 32)
+Total elapse 7182ms (Client 32)
+State 6 elapse 57ms (Client 29)
+Total elapse 7223ms (Client 29)
+State 6 elapse 130ms (Client 16)
+Total elapse 7408ms (Client 16)
+- State 5 elapse 2583ms
+Server: STATE change from 5 to 6
+Start 1
+- State 6 elapse 224ms
+Server shutting down
+timer recv
+TimerFail(0)
