@@ -142,6 +142,10 @@ impl Server {
 				let mut stateGuard = self.STATE.write().unwrap();
 				println!("- State {} elapse {:?}ms", *stateGuard, BENCH_TIMER.elapsed().as_millis());
 				BENCH_TIMER = Instant::now();
+				if *stateGuard == 6 {
+					println!("Server shutting down");
+					break;
+				}
 
 				let mut list = match self.clientList.write() {
 					Ok(mut guard) => guard,
@@ -254,8 +258,7 @@ impl Server {
 					5 => { 
 						//println!("recv Aggregated Shares {:?} \n dim: {} * {}", shares, shares.len(), shares[0].len());
 						finalResult = self.reconstruction(&shares, &dropouts, &param, M);
-						break;
-						Ok(())
+						timerTx.send(1)
 					},
 					_ => Ok(()),
 				};

@@ -490,10 +490,12 @@ impl Client{
 			cn:  [t1, t2....t7]]
 		*/
 		match send_vecs(&self.sender, msg) {
-			Ok(_) => return Ok(4),
+			Ok(_) => {
+				println!("State 5 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
+				return Ok(5)
+			},
 			Err(_) => return Err(ClientError::SendFailure(5)),
 		};
-		println!("State 5 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 	}
 
 	pub fn aggregation(&self) -> Result<usize, ClientError> {
