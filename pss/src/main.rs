@@ -1,6 +1,7 @@
 use pss::*;
 use pss::util::ModPow;
 use std::time::{Duration, Instant};
+use rand::{thread_rng, Rng};
 
 fn main() {
     println!("Hello, world!");
