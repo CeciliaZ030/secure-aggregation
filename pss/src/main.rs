@@ -15,8 +15,8 @@ fn main() {
         512, 729, 51200, 512, 700);
 
     let mut rng = thread_rng();
-    let mut secrets = vec![0u64; 5120];
-    for i in 0..5120 {
+    let mut secrets = vec![0u64; 5120*2];
+    for i in 0..5120*2 {
         secrets[i] = rng.gen_range(0, u64::MAX);
     }
     let shares = pss.share(&secrets);
