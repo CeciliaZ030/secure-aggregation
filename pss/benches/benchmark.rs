@@ -56,7 +56,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 		"pss",
         vec![
             Fun::new("share", share_bench),
-            Fun::new("reconstruct", reconstruction_bench),
+            // Fun::new("reconstruct", reconstruction_bench),
         ],
         (),
 	);
