@@ -414,7 +414,7 @@ impl Server {
 					Ok(mut guard) => guard.get_mut(&clientID).unwrap().publicKey = publicKey.to_vec(),
 					Err(_) => return Err(WorkerError::MutexLockFail(3)),
 				};
-		 		send(&worker.dealer, "Your publicKey has been save.", &clientID);
+		 		//send(&worker.dealer, "Your publicKey has been save.", &clientID);
 			},
 			Err(_) => {
 		 		send(&worker.dealer, "Error: Decryption Fail.", &clientID);
@@ -597,9 +597,6 @@ impl Server {
 			Ok(_) => {
 				let mut shares = self.shares.lock().unwrap();
 				shares[idx] = read_le_u64(&msg[0]);
-		 		send(&worker.dealer, 
-		 			"Your aggregated shares has been save.", 
-		 			&clientID);
 		 		worker.threadSender.send(5);
 		 		return Ok(5)
 			},

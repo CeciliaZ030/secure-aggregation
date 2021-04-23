@@ -202,12 +202,6 @@ impl Client{
 			Ok(_) => (),
 			Err(_) => return Err(ClientError::SendFailure(2)),
 		};
-		// Server says Ok
-		let msg = recv(&self.sender);
-		match msg {
-			RecvType::string(s) => (),//println!("{}, {:?}", self.ID, s),
-			_ => return Err(ClientError::UnexpectedRecv(msg)),
-		};
 
 	/*		 
 			Wait for state change
