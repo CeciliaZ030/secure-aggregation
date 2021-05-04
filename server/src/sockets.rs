@@ -2,7 +2,6 @@ use zmq::Message;
 use zmq::Socket;
 use zmq::SNDMORE;
 use std::str;
-use std::thread;
 
 use std::thread::sleep;
 use std::time::Duration;

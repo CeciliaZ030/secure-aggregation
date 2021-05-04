@@ -1,3 +1,5 @@
+use std::cmp::*;
+
 #[derive(Debug)]
 pub struct Param {
 	pub P: u64,
@@ -36,9 +38,9 @@ impl Param {
 			rootThrees[D3 - i] = temp as u64;
 		}
 
-		println!("prime {:?}", P);
-		println!("rootTwos {:?}, {}", rootTwos, D2);
-		println!("rootThrees {:?}, {}", rootThrees, D3);
+		// println!("prime {:?}", P);
+		// println!("rootTwos {:?}, {}", rootTwos, D2);
+		// println!("rootThrees {:?}, {}", rootThrees, D3);
 
 		Param {
 			P: P,
@@ -57,18 +59,8 @@ impl Param {
 		}
 	}
 
-/*
-TOUGHTS:
-<<<<<<< HEAD
-=======
-
->>>>>>> 6abd536567e92573524fc9e680b19659257d9229
-	V = B * L + remainder is really annoying
-	Why don't we make it such that L always divides V?
-	calculate_semi_honest -> maximun divider of V that's <= degree2
-	calculate_malicious -> maximun divider of V that's <= degree2 - corruption
-*/
-	pub fn calculate_semi_honest(&mut self, numClients: usize, vectorSize: usize, dropouts: usize) -> Vec<u64> {
+	pub fn calculate_semi_honest(&mut self, 
+		numClients: usize, vectorSize: usize, inputBitLimit: usize, dropouts: usize) -> Vec<u64> {
 		
 		let mut reconstructLimit = numClients - dropouts;
 
@@ -88,8 +80,9 @@ TOUGHTS:
 
 		self.useD2 = 2usize.pow(power2 as u32);
 		self.useR2 = self.rootTwos[power2];
-		self.L = greatest_factor_under(vectorSize, self.useR2 as usize);
-		println!("deg2 < n - dropouts {} = reconstructLimit {}", dropouts, reconstructLimit);
+		self.L = greatest_factor_under(vectorSize, self.useD2 as usize);
+
+		println!("deg2 < n {} - dropouts {} = reconstructLimit {}", numClients, dropouts, reconstructLimit);
 		println!("deg2 {:?} = blocklenth {} + corruption 0", self.useD2, self.L);
 
 		// find the nearest exponent of three
@@ -102,7 +95,6 @@ TOUGHTS:
 			n *= 3;
 			power3 += 1;
 		}
-
 		// Make sure don't exceed the maximun power roots provided
 		assert!(power3 <= self.D3);
 
@@ -119,7 +111,8 @@ TOUGHTS:
 		];
 	}
 
-	pub fn calculate_malicious(&mut self, numClients: usize, vectorSize: usize, dropouts: usize, corruption: usize) -> Vec<u64> {
+	pub fn calculate_malicious(&mut self, 
+		numClients: usize, vectorSize: usize, inputBitLimit: usize, dropouts: usize, corruption: usize) -> Vec<u64> {
 		
 		let mut reconstructLimit = numClients - (dropouts + 2 * corruption);
 
@@ -129,22 +122,20 @@ TOUGHTS:
 		*/
 		let mut n = 2;
 		let mut power2 = 1;
-		while n < reconstructLimit {
+		while n < min(reconstructLimit, numClients/2) {
 			n *= 2;
 			power2 += 1;
 		}
 		power2 -= 1;
-
 		// Make sure don't exceed the maximun power roots provided
 		assert!(power2 <= self.D2);
-
 		self.useD2 = n/2;
 		self.useR2 = self.rootTwos[power2];
 		self.L = greatest_factor_under(vectorSize, self.useD2 - corruption);
 
-		println!("deg2 < n - (d {} + 2t {}) = reconstructLimit {}", dropouts, corruption, reconstructLimit);
+		println!("deg2 < n {} - (d {} + 2t {}) = reconstructLimit {}", numClients, dropouts, corruption, reconstructLimit);
 		println!("deg2 {:?} = blocklenth {} + corruption {}", self.useD2, self.L, corruption);
-
+		
 		// find the nearest exponent of three
 		/* Ex: degree3 = 1000 -> 729
 		*      power3 = 6 since 3^6 = 729
@@ -155,10 +146,8 @@ TOUGHTS:
 			n *= 3;
 			power3 += 1;
 		}
-
 		// Make sure don't exceed the maximun power roots provided
 		assert!(power3 <= self.D3);
-
 		self.useD3 = 3usize.pow(power3 as u32);
 		self.useR3 = self.rootThrees[power3];
 
@@ -172,20 +161,20 @@ TOUGHTS:
 		];
 	}
 }
- 
-fn greatest_factor_under(mut n: usize, m: usize) -> usize {
+
+fn greatest_factor_under(mut a: usize, b: usize) -> usize {
 	/* Find the greatest facotr of a under b
 	   n/k = q
-	   where k is the largest factor where k< b
+	   where k is the largest factor where k < b
 	   k < b
 	   kq = n < bq
 	   then we find the smallest factor q s.t. q | n
 	*/
-	assert!(n >= m);
-	for i in 2..n {
-		if n % i == 0 {
-			if m * i >= n { 
-				return n/i; 
+	assert!(a >= b);
+	for i in 2..a {
+		if a % i == 0 {
+			if b * i >= a { 
+				return a/i; 
 			}
 		}
 	}

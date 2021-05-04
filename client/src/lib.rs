@@ -54,7 +54,6 @@ pub struct Param {
 	D2: usize,
 	D3: usize,
 	L: usize,
-	remainder: usize,
 }
 
 
@@ -79,15 +78,15 @@ pub struct Client{
 	shareOrder:  Vec<Vec<u8>>,				/* [pk_c1, pk_c2, ....] 
 											all clients assign shares in this order
 											*/
-
 	vectorSize: usize,
+	inputBitLimit: usize,
 	param: Option<Param>,
 	shares: Vec<Vec<u64>>,
 }
 
 impl Client{
 	
-	pub fn new(ID: &str, vectorSize: usize, port1: &str, port2: &str) -> Client{
+	pub fn new(ID: &str, vectorSize: usize, inputBitLimit: usize, port1: &str, port2: &str) -> Client{
 
     	let context = zmq::Context::new();
 		let sender = context.socket(zmq::DEALER).unwrap();
@@ -135,6 +134,7 @@ impl Client{
 			shareKeys: HashMap::new(),
 			shareOrder: Vec::<Vec<u8>>::new(),				
 			vectorSize: vectorSize,
+			inputBitLimit: inputBitLimit,
 			param: None,
 			shares: Vec::new(),
 		}
@@ -174,12 +174,10 @@ impl Client{
 		let AFTER = Instant::now();
 		match waitRes {
 			RecvType::matrix(m) => {
-				//println!("{} Recieved other's vk: {:?}", self.ID, &m.len());
 				self.clientVerikeys = m
 			},
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
-		//println!("OK from handshake");
 		println!("State 1 elapse {:?}ms ({})", 
 			(BEFORE-BENCH_TIMER+AFTER.elapsed()).as_millis(), self.ID);
 		return Ok(1)
@@ -205,7 +203,7 @@ impl Client{
 		// Server says Ok
 		let msg = recv(&self.sender);
 		match msg {
-			RecvType::string(s) => (),//println!("{}, {:?}", self.ID, s),
+			RecvType::string(s) => (),
 			_ => return Err(ClientError::UnexpectedRecv(msg)),
 		};
 
@@ -222,7 +220,6 @@ impl Client{
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
 		let AFTER = Instant::now();
-		//println!("{} Recieved other's pk: {:?}", self.ID,  &publicKeys.len());
 		for pk in publicKeys.iter() {
 			let shared = self.privateKey
 							 .diffie_hellman(
@@ -234,7 +231,6 @@ impl Client{
 			};
 		}
 		self.shareOrder = publicKeys;
-		//println!("{}, OK from key_exchange", self.ID);
 		println!("State 2 elapse {:?}ms ({})", 
 			(BEFORE-BENCH_TIMER+AFTER.elapsed()).as_millis(), self.ID);
 		return Ok(2) 
@@ -248,6 +244,7 @@ impl Client{
 			Perform pss
 	*/
 		assert!(input.len() == self.vectorSize);
+
 		let waitRes = self.state_change_broadcast("IS");
 		let BENCH_TIMER = Instant::now();
 
@@ -266,69 +263,123 @@ impl Client{
 			D2: sharingParams[3] as usize,
 			D3: sharingParams[4] as usize,
 			L: sharingParams[5] as usize,			// in semi-honest, L = D2
-			remainder: 0usize,
 		};
+		
 		let N = self.shareKeys.len();
 		let V = self.vectorSize;
 		let L = param.L;
 		let B = V/L;
-		param.remainder = V - B * L;
-
-		//println!("{} param R2: {}, R3: {}, d2: {:?}, d3: {}, L {}", self.ID, param.R2, param.R3, param.D2, param.D3, L);		
-		// V = B * L
-		//println!("B * L = {} * {}, N = {}",  B, L, N);
+		let S = self.inputBitLimit;
+		let P = param.P as u64;
+		let Y = (
+			((2f32*(S as f32) + (V as f32).log2().ceil())/
+			(L as f32)).ceil()*
+			(L as f32)) as usize;
 
 		let mut pss = PackedSecretSharing::new(
 			param.P, param.R2, param.R3, 
 			param.D2, param.D3, 5 * V, L, N
 		);
-
+		let x = input.clone();
 	/*
-		[xi1 xi2 ... xim ]
-		[y1 y2 ... ym]
-		[ai 0 ... 0 
-		[a0i a1i ... 0]	//one bit of ai
-		[r1 r2 ... rm]
+			NOTE: heavy communication overhead if limit bit number
+			if L is small and bitnum of ysum <= L
+			the input bit limit will be very small!
+			(u64 to share only ~5 bits input ???)
+
+			[x1 x2 ... xv]
+			============== v
+			[y1 y2 ... yv]
+			[ysum 02 ... 0l]
+			[ysum_b1 ysum_b2 ... ]
+			[ysum_bn 0n+1 ... 0l]
+			============== 2v+2l
+			[x1_b1 ... xl_b1]    	maxinum length of ysum 2S+log(V) celling [0, 2, 4]
+			[x1_b2 ... xl_b2]
+			...
+			[x1_bs ... xl_bs]
+			_______________
+			[xl+1_b1 ... x2l_b1]
+			[xl+1_b2 ... x2l_b2]
+			...
+			[xl+1_bs ... x2l_bs]
+			_______________
+			...
+			_______________
+			[x(b-1)l+1_b1 ... xbl_b1]
+			[x(b-1)l+1_b2 ... xbl_b2]
+			...
+			[x(b-1)l+1_bs ... xbl_bs]
+			============== 2v+2l+bsl
+			[rC1 rC2 ... rCl]
+			[rA1 rA2 ... rAl]
+			[rB1 rB2 ... rBl]
+			============== 2v+2l+bsl+3l
 	*/
 		// Insert y = x^2
-		let mut ySum = 0u128;
+		let mut ySum = 0;
 		for i in 0..V {
-			let y = (input[i] as u128) * (input[i] as u128) % param.P;
-			input.push(y as u64);
-			ySum = (ySum + y) % param.P;
+			let y = ((x[i] as u128) * (x[i] as u128) % param.P) as u64;
+			input.push(y);
+			ySum = (ySum + y) % P;
 		}
-		// Insert y sum
-		input.push(ySum as u64);
-		input.extend(vec![0; V-1]);
-		// Insert bits of y sum
-		let mut yBitArr = Vec::<u64>::new();
-		while ySum > 0 {
-			yBitArr.push((ySum % 2) as u64);
-			ySum = ySum >> 1;
-		}
-		yBitArr.reverse();
-		let yBitArr_len = yBitArr.len();
-		assert!(yBitArr_len <= V);
-		input.extend(yBitArr);
-		for _ in yBitArr_len..V {
-			input.push(0);
-		}
-		// Insert random
+		//println!("ySum {:?}, {}", ySum, (ySum as f64).log(2.0));
+
+		// Insert ysum
+		input.push(ySum);
+		input.extend(vec![0; L-1]);
+		
+
+		// Insert bits of ysum
+		//	bitnum of ysum <= L
+		let mut yBitArr = into_be_u64_vec(ySum as u64, Y);
+		assert!(yBitArr.len() == Y);
+		input.extend(yBitArr.clone());
+		println!("yBitArr {:?}", yBitArr);
+
+		// Insert bits of x
+		//	bitnum of xi <= S
+		let mut x_bits = vec![0; L*S*B];
 		for i in 0..V {
-			input.push(OsRng.next_u64());
+			let b = i/L; // b-th block
+			let xi_bits = into_be_u64_vec(x[i].clone(), S);
+			assert!(xi_bits.len() == S);
+			for j in 0..S {
+				x_bits[((b*S+j)*L)+(i-L*b)] = xi_bits[j];
+			}
 		}
-		assert!(input.len() == 5 * V);
+		input.extend(x_bits);
+
+		// Insert random C
+		for i in 0..L {
+			input.push(OsRng.next_u64() % P);
+		}
+
+		// Insert random A
+		input.extend(vec![0u64; L]);
+
+		// Insert random B
+		let mut rand_sum = 0;
+		for i in 0..L-1 {
+			let rand = OsRng.next_u64() % P;
+			input.push(rand);
+			rand_sum = (rand_sum + rand) % P;
+		}
+		input.push(P - rand_sum);
+
+		assert!(input.len() == 2*V + L + Y + L*S*B + 3*L);
 
 		let SHARE_START = Instant::now();
+		//println!("input {:?}", input);
 		let resultMatrix = pss.share(&input);
+		assert!(resultMatrix.len() == N);
+		assert!(resultMatrix[0].len() == (2*V + L + Y + L*S*B + 3*L)/L);
+		//println!("resultMatrix {:?}", resultMatrix);
 		println!("{:?} sharing time {:?}", self.ID, SHARE_START.elapsed().as_millis());
 	/* 
 		 	Encrypt shares for each DH sharedKey
 			send [shares_c1, shares_c2, ....  ]
 	*/
-	
-		//println!("finished pss: (#Clients * sharesLen) = ({} * {}).. {}", 
-			//resultMatrix.len(), resultMatrix[0].len(), self.ID);
 		let mut msg = Vec::new();
 		for (i, pk) in self.shareOrder.iter().enumerate() {
 			
@@ -367,6 +418,11 @@ impl Client{
 		let V = self.vectorSize;
 		let L = param.L;
 		let B = V/L;
+		let S = self.inputBitLimit;
+		let Y = (
+			((2f32*(S as f32) + (V as f32).log2().ceil())/
+			(L as f32)).ceil()*
+			(L as f32)) as usize;
 
 		let mut cnt = 0;
 		self.shares = vec![vec![0u64]; N];
@@ -376,7 +432,6 @@ impl Client{
 					/* server broadcast dropouts
 					break from waiting for shares...
 					*/
-					//println!("dropouts {:?}", dropouts);
 					if dropouts.len() == 0 {continue;}
 					for d in dropouts {
 						assert!(self.shares[d as usize] == vec![0u64]);
@@ -403,7 +458,7 @@ impl Client{
 	        	 				return Err(ClientError::UnidentifiedShare(4));
 	        	 			},
 	        	 		};
-						let nonce = GenericArray::from_slice(b"unique nonce");			//pk
+						let nonce = GenericArray::from_slice(b"unique nonce");
 			 			let plaintext = match cipher.decrypt(nonce, m[1].as_ref()) {
 			 				Ok(p) => read_le_u64(p),
 			 				Err(_) => {
@@ -411,10 +466,9 @@ impl Client{
 			 					return Err(ClientError::EncryptionError(4));
 			 				}
 			 			};
-			 			assert!(plaintext.len() == 5 * B);
+			 			assert!(plaintext.len() == (2*V + L + Y + L*S*B + 3*L)/L);
 			 			self.shares[idx] = plaintext;
 			 			cnt += 1;
-			 			//println!("{:?} just get shres number {}, len {:?}", self.ID, cnt, self.shares[idx].len());
 	        	 	},
 	        	 	_ => return Err(ClientError::UnexpectedRecv(msg)),
 	        	 };
@@ -422,7 +476,6 @@ impl Client{
 	        };
 	        // stop when recv shares from each peer
 			if(cnt == N){
-				//println!("{:?} recv all {:?} shares", self.ID, cnt);
 	        	break;
 	        }
 		}
@@ -433,7 +486,8 @@ impl Client{
 	pub fn error_correction(&mut self) -> Result<usize, ClientError> {
 	/*
 			Recv vecs for all tests
-			[[dorpouts], [D test], [Input Bit test], ....]
+			[[dorpouts], [Degree Test], [Input Bit Test], [Quadratic Test], 
+			 [Input bound test], [L2-norm sum test], [L2-norm bit test], [L2-norm bound test]]
 			Handle dropouts
 	*/
 		let N = self.shareKeys.len();
@@ -441,54 +495,162 @@ impl Client{
 		let L = self.param.unwrap().L;
 		let B = V/L;
 		let P = self.param.unwrap().P;
-		
+		let S = self.inputBitLimit;
+		let Y = (
+			((2f32*(S as f32) + (V as f32).log2().ceil())/
+			(L as f32)).ceil()*
+			(L as f32)) as usize;
+
+		let idx = self.shareOrder.iter().position(|s| s == &*self.publicKey.to_bytes()).unwrap();
 		let waitRes = self.state_change_broadcast("EC");
 		let BENCH_TIMER = Instant::now();
 
 		let mut dorpouts;
-		let degTest;
+		let (mut degree_rand, mut input_bit_rand, mut quadratic_rand, mut input_bound_rand, 
+			mut l2_norm_bit_rand, mut l2_norm_sum_rand, mut l2_norm_bound_rand, mut l2_norm_bound_shares);
 		match waitRes {
 			RecvType::matrix(m) => {
-				if m.len() != 2 {							// [[dorpouts], [D test],....]
+				if m.len() != 9 {
 					return Err(ClientError::UnexpectedRecv(RecvType::matrix(m)));
 				}
 				dorpouts = read_le_u64(m[0].clone());
-				degTest = read_le_u64(m[1].clone()); //TODO: Add more tests
-				assert!(degTest.len() == 5 * B);
+				degree_rand = read_le_u64(m[1].clone());
+				input_bit_rand = read_le_u64(m[2].clone());
+				quadratic_rand = read_le_u64(m[3].clone());
+				input_bound_rand = read_le_u64(m[4].clone());
+				l2_norm_sum_rand = read_le_u64(m[5].clone());
+				l2_norm_bit_rand = read_le_u64(m[6].clone());
+				l2_norm_bound_rand = read_le_u64(m[7].clone());
+				l2_norm_bound_shares = read_le_u64(m[8].clone());
 			},
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
-		//println!("{:?} EC param (DT len {})", self.ID, degTest.len());
 	/*
 			Comput tests only for those who didn't dropout
+			Leave tests_bytes empty for row_i if client_i dropouts
+			msg = 
+				c0: [[t1, t2....t3]
+				c1:  [t1, t2....t3]
+				...
+				ck:	 [] 				<- dropout
+				...
+				cn:  [t1, t2....t3]]
 			We don't remove anyone cuz resizing array is slow
 	*/
-		let mut msg = Vec::new();	//TODO: Add more tests	
-		// D Test
+		let mut msg = Vec::new();
+				println!("idx {:?}", idx);
 		for i in 0..N {
-			let mut tests_bytes = Vec::new();
+			if i == 0 {println!("shares len {:?} = (2*V + L + Y + L*S*B + 3*L)/L {}", self.shares[i].len(), (2*V + L + Y + L*S*B + 3*L)/L)};
+			let mut tests = Vec::new();
 			if !dorpouts.contains(&(i as u64)) { 
 				assert!(self.shares[i] != vec![0u64]);
-				let mut tests = vec![0u64; 7];
+				tests = vec![0u64; 3];
+
+				if i == 0 {println!("degree_rand {:?} = {}", degree_rand.len(), (2*V + L + Y + L*S*B + 3*L)/L);}
 				// Degree Test
-				for j in 0..5*B {
-					tests[0] += ((degTest[j] as u128) * (self.shares[i][j] as u128) % P) as u64;
-					tests[0] %= P as u64;
+				let mut DT = 0u128;
+				for j in 0..(2*V + L + Y + L*S*B + 3*L)/L {
+					// r * each share
+					DT += ((degree_rand[j] as u128) * (self.shares[i][j] as u128) % P);
+					DT %= P;
 				}
-				// TODO: more tests...
-				//println!("{:?} calculated 7 tests {:?} for client {}", self.ID,  tests, i);
-				for t in tests {
-					tests_bytes.extend((t as u64).to_le_bytes().to_vec());
+				tests[0] = (DT as u64).try_into().unwrap();
+		// _________________________________________________________
+
+				if i == 0 {
+					println!("input_bit_rand {:?} = {}", input_bit_rand.len(), B*S);
+					println!("x_bits from {} to {}", (2*V + L + Y)/L, (2*V + L + Y)/L + B*S);
+					//println!("shares[i] {:?}", self.shares[i]);
 				}
+				// Input Bit Test
+				let mut IBTT = 0u128;
+				for j in 0..B*S {
+					// r * (x_bit * (1 - x_bit))
+					let x_bit = self.shares[i][(2*V + L + Y)/L + j] as u128;
+					IBTT += (x_bit * (1 + P - x_bit) % P) * (input_bit_rand[j] as u128) % P;
+					IBTT %= P;
+				}
+
+				// Quadratic Test
+				if i == 0  {println!("quadratic_rand {:?} = {}", quadratic_rand.len(), B);}
+				let mut QT = 0u128;
+				for j in 0..B {
+					// r * (x^2 - y)
+					let x = self.shares[i][j] as u128;
+					let y = self.shares[i][V/L + j] as u128;
+					QT += ((x * x) % P + P - y) * (quadratic_rand[j] as u128) % P;
+					QT %= P;
+				}
+
+				// L2-norm bit test
+				if i == 0 {println!("l2_norm_bit_rand {:?}", l2_norm_bit_rand);}
+				let mut L2NBTT = 0u128;
+				// r * (ySum_bits * (1 - ySum_bits))
+				for j in 0..Y/L {
+					let ySum_bits = self.shares[i][(2*V + L)/L + j] as u128;
+					L2NBTT += (ySum_bits * (1 + P - ySum_bits) % P) * (l2_norm_bit_rand[j] as u128) % P;
+					L2NBTT %= P;
+				}
+
+			/* 
+			sum of three tests + randomness A generated by Party i (all 0)
+			*/
+				let sumA = ((IBTT + QT + L2NBTT) % P + self.shares[i][(2*V + L + Y + L*S*B + 1*L)/L] as u128) % P;
+				tests[1] = (sumA as u64).try_into().unwrap();
+
+		// _________________________________________________________
+
+				// Input Bound Test
+				if i == 0  {println!("input_bound_rand {:?} = {}", input_bound_rand.len(), B);}
+				let mut IBDT = 0u128;
+				for j in 0..B {
+					// r * ( sum(x_bit * 2^k) - x)
+					let x = self.shares[i][j] as u128;
+					let mut sumX_bit = 0u128;
+					for k in 0..S {
+						let x_bit = self.shares[i][(2*V + L + Y + j*S*L)/L + k] as u128;
+						sumX_bit += x_bit * 2u128.pow(k as u32) % P;
+						sumX_bit %= P;
+					}
+					IBDT += (sumX_bit + P - x) * (input_bound_rand[j] as u128) % P;
+					IBDT %= P;
+				}
+
+				// L2-norm sum test
+				if i == 0 {println!("l2_norm_sum_rand {:?}", l2_norm_sum_rand);}
+				let mut L2NST;
+				let mut sumY = 0u128;
+				for j in 0..B {
+					let y = self.shares[i][V/L + j] as u128;
+					sumY += y % P;
+				}
+				// r * (sum(y) - ySum)
+				L2NST = (sumY + P - self.shares[i][(2*V)/L] as u128) * (l2_norm_sum_rand[0] as u128) % P;
+				
+				// L2-norm bound test
+				if i == 0  {
+					println!("l2_norm_bound_shares {:?}, totol {}", l2_norm_bound_shares[idx], l2_norm_bound_shares.len());
+					println!("l2_norm_bound_rand {:?}", l2_norm_bound_rand);
+				}
+				let mut L2NBDT;
+				let ySum = self.shares[i][(2*V)/L] as u128;
+				// r * (ySum_bits * 2^k_share - ySum) [0,2,4,8,16,....]
+				let mut share_sum = 0u128;
+				for j in 0..Y/L {
+					let ySum_bits = self.shares[i][(2*V + L)/L + j] as u128;
+					share_sum += (ySum_bits * l2_norm_bound_shares[idx*(Y/L)+j] as u128) % P;
+					share_sum %= P;
+				}
+				L2NBDT = (ySum + P - share_sum) % P * (l2_norm_bound_rand[0] as u128) % P;
+				
+			/* 
+			sum of three tests + canceling randomness B generated by Party i (sum to 0)
+			*/
+				let sumB = ((IBDT + L2NST + L2NBDT) % P + self.shares[i][(2*V + L + Y + L*S*B + 2*L)/L] as u128) % P;
+				tests[2] = (sumB as u64).try_into().unwrap();
 			}
-			msg.push(tests_bytes);
+			msg.push(write_u64_le_u8(tests.as_slice()).to_vec());
 		}
-		/* msg
-			c0: [[t1, t2....t7]
-			c1:  [t1, t2....t7]
-			...
-			cn:  [t1, t2....t7]]
-		*/
 		match send_vecs(&self.sender, msg) {
 			Ok(_) => {
 				println!("State 5 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
@@ -513,7 +675,7 @@ impl Client{
 		let BENCH_TIMER = Instant::now();
 
 		let dropouts = match waitRes {
-			RecvType::matrix(m) => read_le_u64(m[0].clone()),
+			RecvType::bytes(b) => read_le_u64(b),
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
 		//println!("{:?} aggregation, skipping {:?}", self.ID, dropouts);
@@ -592,7 +754,23 @@ fn sub_task(subscriber: zmq::Socket,
     Ok(0)
 }
 
+pub fn write_u64_le_u8(v: &[u64]) -> &[u8] {
+	/*
+		Write u64 integer array into continuous bytes array
+	*/
+    unsafe {
+        std::slice::from_raw_parts(
+            v.as_ptr() as *const u8,
+            v.len() * std::mem::size_of::<u64>(),
+        )
+    }
+}
+
 fn read_le_u128(input: Vec<u8>) -> Vec<u128> {
+	/*
+		Read little endian bytes Vec<u8> of u128 integer array
+		back to Vec<u128>
+	*/
     let mut res = Vec::<u128>::new();
     if input.len() == 0 {
     	return res;
@@ -610,6 +788,10 @@ fn read_le_u128(input: Vec<u8>) -> Vec<u128> {
 }
 
 fn read_le_u64(input: Vec<u8>) -> Vec<u64> {
+	/*
+		Read little endian bytes Vec<u8> of u64 integer array
+		back to Vec<u64>
+	*/
     let mut res = Vec::<u64>::new();
     if input.len() == 0 {
     	return res;
@@ -627,4 +809,41 @@ fn read_le_u64(input: Vec<u8>) -> Vec<u64> {
 }
 
 
+pub fn read_le_usize(input: &Vec<u8>) -> Vec<u64> {
+	/*
+		Read little endian bytes Vec<u8> of usize integer array
+		back to Vec<usize>
+	*/
+    let mut res = Vec::<u64>::new();
+    if input.len() == 0 {
+    	return res;
+    }
+    let mut ptr = &mut input.as_slice();
+    loop {
+        let (int_bytes, rest) = ptr.split_at(std::mem::size_of::<u64>());
+        *ptr = rest;
+        res.push(u64::from_le_bytes(int_bytes.try_into().unwrap()));
+        if rest.len() < 8 {
+            break;
+        }
+    }
+    res
+}
+
+
+fn into_be_u64_vec(mut input: u64, size: usize) -> Vec<u64> {
+	/*
+		Convert u64 integer into Vec<u64> = [bit0 as u64, bit2 as u64, ...]
+		Big endian.
+	*/
+	let mut bitArr = Vec::<u64>::new();
+	while input > 0 {
+		bitArr.push((input % 2) as u64);
+		input = input >> 1;
+	}
+	for _ in bitArr.len()..size {
+		bitArr.push(0)
+	}
+	bitArr
+}
 

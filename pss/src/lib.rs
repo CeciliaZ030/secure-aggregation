@@ -127,7 +127,7 @@ where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialO
 		   [[s00, s01, ..., s0b],	//shares of party 0
 		    [s10, s11, ..., s1b],	//shares of party 1
 		    ...
-		    [sm0, sm1, ..., smb]]	//shares of party 
+		    [sm0, sm1, ..., smb]]	//shares of party m
 
 		Number of shares collected > than threshold
 		but smaller than initially distributed number
