@@ -120,6 +120,7 @@ pub fn format_clientData(profiles: &mut HashMap<Vec<u8>, Profile>,
         	},
         }
     }
+    println!("dropouts {:?}", dropouts);
    	for i in dropouts {
    		let key = list.remove(i);
    		profiles.remove(&key);

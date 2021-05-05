@@ -206,11 +206,13 @@ impl Server {
 						   removed from *list and *profiles if pk not found
 						   Not using recording dropouts before IS begins
 						*/
+						println!("cp {:?}", *profiles, *list);
 						publish_vecs(
 							&publisher, 
 							format_clientData(&mut *profiles, &mut *list,
 							 "publicKey").unwrap(), 
 							"KE");
+						println!("cp2");
 						M = list.len();
 						let sharingParams = match self.malFg {
 							false => param.calculate_semi_honest(M, self.V, self.S, self.D),
