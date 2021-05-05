@@ -206,7 +206,7 @@ impl Server {
 						   removed from *list and *profiles if pk not found
 						   Not using recording dropouts before IS begins
 						*/
-						println!("cp {:?}", *profiles, *list);
+						println!("cp {:?}", *list);
 						publish_vecs(
 							&publisher, 
 							format_clientData(&mut *profiles, &mut *list,
