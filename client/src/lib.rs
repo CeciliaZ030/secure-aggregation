@@ -84,18 +84,32 @@ pub struct Client{
 	shares: Vec<Vec<u64>>,
 }
 
+
 impl Client{
 	
-	pub fn new(ID: &str, vectorSize: usize, inputBitLimit: usize, port1: &str, port2: &str) -> Client{
+	pub fn new(ID: &str, vectorSize: usize, inputBitLimit: usize, ip: Option<&str>, port1: usize, port2: usize) -> Client{
 
     	let context = zmq::Context::new();
 		let sender = context.socket(zmq::DEALER).unwrap();
 
-		let mut addr1: String = "tcp://localhost:".to_owned();
-		let mut addr2: String = "tcp://localhost:".to_owned();
+		let mut addr1: String;
+		let mut addr2: String;
 
-		addr1.push_str(port1);
-		addr2.push_str(port2);
+		match ip {
+			Some(address) => {
+				addr1 = format!("tcp://{}:{:?}", address, port1);
+				addr2 = format!("tcp://{}:{:?}", address, port2);
+				println!("Sender connecting {}", addr1);
+				println!("Subscriber connecting to {}", addr2);			
+			},
+			None => {
+				addr1 = format!("tcp://localhost:{:?}", port1);
+				addr2 = format!("tcp://localhost:{:?}", port2);
+				println!("Sender going default {}", addr1);
+				println!("Subscriber going default {}", addr2);
+			},
+		}
+
 		sender.set_identity(ID.as_bytes());
 		assert!(sender.connect(&addr1).is_ok());
 
@@ -335,7 +349,6 @@ impl Client{
 		let mut yBitArr = into_be_u64_vec(ySum as u64, Y);
 		assert!(yBitArr.len() == Y);
 		input.extend(yBitArr.clone());
-		println!("yBitArr {:?}", yBitArr);
 
 		// Insert bits of x
 		//	bitnum of xi <= S
@@ -538,15 +551,12 @@ impl Client{
 			We don't remove anyone cuz resizing array is slow
 	*/
 		let mut msg = Vec::new();
-				println!("idx {:?}", idx);
 		for i in 0..N {
-			if i == 0 {println!("shares len {:?} = (2*V + L + Y + L*S*B + 3*L)/L {}", self.shares[i].len(), (2*V + L + Y + L*S*B + 3*L)/L)};
 			let mut tests = Vec::new();
 			if !dorpouts.contains(&(i as u64)) { 
 				assert!(self.shares[i] != vec![0u64]);
 				tests = vec![0u64; 3];
 
-				if i == 0 {println!("degree_rand {:?} = {}", degree_rand.len(), (2*V + L + Y + L*S*B + 3*L)/L);}
 				// Degree Test
 				let mut DT = 0u128;
 				for j in 0..(2*V + L + Y + L*S*B + 3*L)/L {
@@ -557,11 +567,6 @@ impl Client{
 				tests[0] = (DT as u64).try_into().unwrap();
 		// _________________________________________________________
 
-				if i == 0 {
-					println!("input_bit_rand {:?} = {}", input_bit_rand.len(), B*S);
-					println!("x_bits from {} to {}", (2*V + L + Y)/L, (2*V + L + Y)/L + B*S);
-					//println!("shares[i] {:?}", self.shares[i]);
-				}
 				// Input Bit Test
 				let mut IBTT = 0u128;
 				for j in 0..B*S {
@@ -572,7 +577,6 @@ impl Client{
 				}
 
 				// Quadratic Test
-				if i == 0  {println!("quadratic_rand {:?} = {}", quadratic_rand.len(), B);}
 				let mut QT = 0u128;
 				for j in 0..B {
 					// r * (x^2 - y)
@@ -583,7 +587,6 @@ impl Client{
 				}
 
 				// L2-norm bit test
-				if i == 0 {println!("l2_norm_bit_rand {:?}", l2_norm_bit_rand);}
 				let mut L2NBTT = 0u128;
 				// r * (ySum_bits * (1 - ySum_bits))
 				for j in 0..Y/L {
@@ -601,7 +604,6 @@ impl Client{
 		// _________________________________________________________
 
 				// Input Bound Test
-				if i == 0  {println!("input_bound_rand {:?} = {}", input_bound_rand.len(), B);}
 				let mut IBDT = 0u128;
 				for j in 0..B {
 					// r * ( sum(x_bit * 2^k) - x)
@@ -617,7 +619,6 @@ impl Client{
 				}
 
 				// L2-norm sum test
-				if i == 0 {println!("l2_norm_sum_rand {:?}", l2_norm_sum_rand);}
 				let mut L2NST;
 				let mut sumY = 0u128;
 				for j in 0..B {
@@ -628,10 +629,6 @@ impl Client{
 				L2NST = (sumY + P - self.shares[i][(2*V)/L] as u128) * (l2_norm_sum_rand[0] as u128) % P;
 				
 				// L2-norm bound test
-				if i == 0  {
-					println!("l2_norm_bound_shares {:?}, totol {}", l2_norm_bound_shares[idx], l2_norm_bound_shares.len());
-					println!("l2_norm_bound_rand {:?}", l2_norm_bound_rand);
-				}
 				let mut L2NBDT;
 				let ySum = self.shares[i][(2*V)/L] as u128;
 				// r * (ySum_bits * 2^k_share - ySum) [0,2,4,8,16,....]

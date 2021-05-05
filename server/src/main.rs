@@ -17,7 +17,6 @@ use server::worker::*;
 fn main() {
 
     let args: Vec<String> = env::args().collect();
-
 	println!("hello");
     let context = zmq::Context::new();
     let (tx, rx) = mpsc::channel();
@@ -26,6 +25,10 @@ fn main() {
             1414118249734601779u64, 20,            // Root2, 2^x degree
             308414859194273485u64, 15,             // Root3, 3^x degree
         );
+    /*
+        May provide IP addr & two different ports# 
+    */
+    assert!(args.len() == 9 || args.len() == 12);   
     let server = Arc::new(Server::new(
         args[1].parse::<usize>().unwrap(),          // MAX clients
         args[2].parse::<usize>().unwrap(),          // Vector Length
@@ -53,11 +56,19 @@ fn main() {
     // Server Thread
     /*
         Runs frontend and backend of zmq sockets structure.
+
+        Reciever port: arg[10] 
+        (defualt: 8888)
     */
     let ctx = context.clone();
     let svr = server.clone();
+    let arg = args.clone();
     let serverThread = thread::spawn(move || {
-        svr.server_task(ctx, 8888);
+        if arg.len() == 12 {
+             svr.server_task(ctx, Some(&arg[9]),  arg[10].parse::<usize>().unwrap());
+        } else {
+            svr.server_task(ctx, None, 8888);
+        }
     });
 
     // State Thread
@@ -65,14 +76,25 @@ fn main() {
         Recieves information from worker threads,
         constantly keeps track of count and timer,
         changes state once enough client have participated.
+
+        Publisher port: arg[11]
+        (default: 9999)
     */
     let ctx = context.clone();
     let svr = server.clone();
+    let arg = args.clone();
     let stateThread = thread::spawn(move || {
-        match svr.state_task(ctx, 9999, rx) {
-            Ok(_) => (),
-            Err(e) => println!("{:?}", e),
-        };
+        if arg.len() == 12 {
+             match svr.state_task(ctx, Some(&arg[9]), arg[11].parse::<usize>().unwrap(), rx) {
+                Ok(_) => (),
+                Err(e) => println!("{:?}", e),
+            };
+        } else {
+            match svr.state_task(ctx, None, 9999, rx) {
+                Ok(_) => (),
+                Err(e) => println!("{:?}", e),
+            };
+        }
     });
 
     // Worker Thread

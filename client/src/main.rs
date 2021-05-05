@@ -13,17 +13,23 @@ use zmq::SNDMORE;
 use rand_core::{RngCore, OsRng};
 use rand::{thread_rng, Rng};
 
-
 use client::*;
 
 fn main() {
 
 	let args: Vec<String> = env::args().collect();
-	
+	assert!(args.len() == 4 || args.len() == 7);   
 	let myName = &args[1];
 	let vectorSize = args[2].parse::<usize>().unwrap();
 	let inputBitLimit = args[3].parse::<usize>().unwrap();
-    let mut client = Client::new(myName, vectorSize, inputBitLimit, "8888", "9999");
+
+	let mut client;
+    if args.len() == 7 {
+        client = Client::new(myName, vectorSize, inputBitLimit, 
+        	Some(&args[4]), args[5].parse::<usize>().unwrap(), args[6].parse::<usize>().unwrap());
+    } else {
+        client = Client::new(myName, vectorSize, inputBitLimit, None, 8888, 9999);
+    }
 
     let BENCH_TIMER = Instant::now();
 

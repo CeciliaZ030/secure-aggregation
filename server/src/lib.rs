@@ -1,3 +1,9 @@
+#![allow(unused_imports)]
+#![allow(non_snake_case)]
+#![allow(non_camel_case_types)]
+#![allow(dead_code)]
+#![allow(unused_must_use)]
+
 use std::collections::HashMap;
 use std::thread;
 use std::sync::*;
@@ -81,14 +87,25 @@ impl Server {
 	}
 
 	pub fn server_task(&self, 
-		context: zmq::Context, port1: usize) -> Result<usize, ServerError>  {
+		context: zmq::Context, ip: Option<&str>, port1: usize) -> Result<usize, ServerError>  {
 
 		let frontend = context.socket(zmq::ROUTER).unwrap();
     	let backend = context.socket(zmq::DEALER).unwrap();
 
-		assert!(frontend
-			.bind(&format!("tcp://*:{:?}", port1))
-			.is_ok());
+    	match ip {
+    		Some(address) => {
+    			println!("Reciever connecting to tcp://{}:{}", address, port1);
+				assert!(frontend
+					.bind(&format!("tcp://{}:{:?}", address, port1))
+					.is_ok());
+    		},
+    		None => {
+				println!("Reciever going default tcp://*:{}", port1);
+				assert!(frontend
+					.bind(&format!("tcp://*:{:?}", port1))
+					.is_ok());
+    		},
+    	}
 		assert!(backend
 			.bind("inproc://backend")
 			.is_ok());
@@ -100,15 +117,24 @@ impl Server {
 
 
 	pub fn state_task(&self, 
-		context: zmq::Context, port2: usize, threadReciever: mpsc::Receiver<usize>) -> Result<usize, ServerError> {
+		context: zmq::Context, ip: Option<&str>, port2: usize, threadReciever: mpsc::Receiver<usize>) -> Result<usize, ServerError> {
 
-    	println!("{}", &format!("tcp://*:{:?}", port2));
 		let publisher = context.socket(zmq::PUB).unwrap();
         publisher.set_sndhwm(1_100_000).expect("failed setting hwm");
-		assert!(publisher
-			.bind(&format!("tcp://*:{:?}", port2))
-			.is_ok());
-
+    	match ip {
+    		Some(address) => {
+				println!("Publisher connecting to tcp://{}:{:?}", address, port2);
+				assert!(publisher
+					.bind(&format!("tcp://{}:{:?}", address, port2))
+					.is_ok());
+    		},
+    		None => {
+				println!("Publisher going default tcp://*:{:?}", port2);
+				assert!(publisher
+					.bind(&format!("tcp://*:{:?}", port2))
+					.is_ok());
+    		},
+    	}
 		let timesUp = Arc::new(RwLock::new(false));
 		let tu = timesUp.clone();
 	    let (timerTx, timerRx) = mpsc::channel();
@@ -252,7 +278,6 @@ impl Server {
 							msg[6].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
 						}
 						// L2-norm bound test
-						println!("Y {}, Y/L {:?}", Y, Y/L);
 						for i in 0..Y/L {
 							msg[7].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
 						}						
@@ -260,7 +285,6 @@ impl Server {
 						for i in 0..Y {
 							twoPowers.push(2u64.pow(i as u32));
 						}
-						println!("twoPowers {:?}", twoPowers);
 						let mut pss = PackedSecretSharing::new(
 							param.P as u128, param.useR2 as u128, param.useR3 as u128, 
 							param.useD2, param.useD3, Y, L, M
@@ -273,7 +297,7 @@ impl Server {
 						/* M is updated 
 						Corrections only contains the clients didn't dropout
 						*/
-						println!("IS dropouts {:?}, EC params {:?}", new_dropouts, msg);
+						println!("IS dropouts {:?}, EC params {:?}", new_dropouts, msg.len());
 						*corrections = vec![vec![Vec::new(); M]; M];
 						publish_vecs(&publisher, msg, "EC");
 						timerTx.send(self.sessTime)
@@ -282,7 +306,7 @@ impl Server {
 						/* Check dropouts from EC
 							msg = [clients who dropouts or fail tests]
 						*/
-						println!("dropouts {:?}", dropouts);
+						println!("EC dropouts {:?}", dropouts);
 						for i in 0..M {
 							let mut j = 0;
 							while j < M && corrections[i][j].len() == 0 {
@@ -293,23 +317,17 @@ impl Server {
 									continue;
 								}
 							}
-							println!("testing for party {:?}", i);
 							if !test_suit(&(*corrections)[i], &param, &mut dropouts) {
 									dropouts.push(i);
 							}
 
 						}
 					   	let mut msg = Vec::new();
-						// for d in dropouts.iter() {
-						// 	msg.extend(&(d.clone() as u64).to_le_bytes()); 
-						// }
 						msg.extend(write_usize_le_u8(dropouts.as_slice()));
-						println!("EC dropouts & fail {:?}", msg);
 						publish(&publisher, msg, "AG");
 						timerTx.send(self.sessTime)
 					},
 					5 => { 
-						//println!("recv Aggregated Shares {:?} \n dim: {} * {}", s
 						finalResult = self.reconstruction(&shares, &dropouts, &param, M);
 						timerTx.send(1)
 					},
@@ -569,37 +587,9 @@ impl Server {
 											[L2-norm sum test], [L2-norm bit test], [L2-norm bound test]]", &clientID);
 					return Err(WorkerError::UnexpectedFormat(4))
 				}
-
-	/* 		correctionVecs Format:
-								 Degree Test		  TestA				TestB
-			c1's collection 	[[c11... cm1]	  [c11... cm1]		[c11... cm1]
-			c2's collection  	[c12... cm2]	  [c12... cm2]		[c11... cm2]
-					....
-			cm's collection  	[c1m... cmm]]	  [c1m... cmm]]		[c1... cmm]]
-	*/
-
-	/*
-		from j: 
-		[ci: [t1, t2, t3],
-		 c2: [t1, t2, t3],
-		 .....
-		]
-
-		[c1: [t1, t2, t3],
-		 c2: [t1, t2, t3],
-		 .....
-		]
-
-	*/
-				match self.correctionVecs.lock() {
+		match self.correctionVecs.lock() {
 					Ok(mut guard) => {
 						for i in 0..M {
-							// if m[i] is empty, read_le_u64 returns vec::new()
-							// let testsVecs_cij = read_le_u64(&m[i]);
-							// if testsVecs_cij.len() == 0 { continue; }
-							// for k in 0..3 {
-							// 	guard[k][i][idx] = testsVecs_cij[k];
-							// }
 							let testsVecs_ci = read_le_u64(&m[i]);
 							guard[i][idx] = testsVecs_ci;
 						}
@@ -614,7 +604,6 @@ impl Server {
 				return Err(WorkerError::UnexpectedFormat(4))
 			},
 		};
-		//println!("error_correction doen");
 		worker.threadSender.send(4);
 		return Ok(4);
 	}

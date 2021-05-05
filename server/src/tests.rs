@@ -65,26 +65,6 @@ pub fn lagrange_degree(poly: &Vec<u64>, param: &Param) -> bool {
 	}
 }
 
-// pub fn degree_test(poly: &Vec<u64>, pss: &PackedSecretSharing<u128>) -> bool {
-
-// 	return true;
-// }
-
-// pub fn test_suit_a(poly: &Vec<u64>, pss: &PackedSecretSharing<u128>) -> bool {
-	
-// 		Input Bit Test, Quadratic test, L2-norm bit test
-	
-
-// 	return true;
-// }
-
-// pub fn test_suit_b(poly: &Vec<u64>, pss: &PackedSecretSharing<u128>) -> bool {
-// 	/*
-// 		Input Bound Test, L2-norm sum test, L2-norm bound test
-// 	*/
-// 	return true;
-// }
-
 /*
 shares of party i
 	
@@ -122,12 +102,10 @@ pub fn test_suit(corrections: &Vec<Vec<u64>>, param: &Param, dropout: &mut Vec<u
 	}
 	let result = pss.reconstruct(&corrections_remove_empty, evalPoints.as_slice());
 	
-	println!("result {:?}", result);
 	let mut sum = 0;
 	for i in 2*param.L..3*param.L {
 		sum = (sum + result[i]) % param.P;
 	}
-	println!("sum {:?}", sum);
 	/*	
 		Input Bit Test, Quadratic test, L2-norm bit test
 		secrets should be 0
