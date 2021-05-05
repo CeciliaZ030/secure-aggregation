@@ -94,6 +94,7 @@ pub fn format_clientData(profiles: &mut HashMap<Vec<u8>, Profile>,
 		Format to send veriKey or publicKey to clients with clientList list
 		Remove from profiles and list if pk is missing
     */
+    assert_eq!(profiles.len(), list.len());
     let mut vecs = Vec::new();
     let mut dropouts = Vec::new();
     for (i, key) in list.iter().enumerate()  {
