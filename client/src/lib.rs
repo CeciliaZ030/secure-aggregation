@@ -410,9 +410,9 @@ impl Client{
 		    msg.push(encryptedShares);
 		}
 		self.param = Some(param);
+		println!("State 3 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 		match send_vecs(&self.sender, msg) {
 			Ok(_) => {
-				println!("State 3 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 				return Ok(3)
 			},
 			Err(_) => return Err(ClientError::SendFailure(3)),
@@ -648,9 +648,9 @@ impl Client{
 			}
 			msg.push(write_u64_le_u8(tests.as_slice()).to_vec());
 		}
+		println!("State 5 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 		match send_vecs(&self.sender, msg) {
 			Ok(_) => {
-				println!("State 5 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 				return Ok(5)
 			},
 			Err(_) => return Err(ClientError::SendFailure(5)),
@@ -693,11 +693,11 @@ impl Client{
 			aggregation_bytes.clone(),
 			self.signKey.sign(&aggregation_bytes).as_ref().to_vec()
 		];
+		println!("State 6 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 		match send_vecs(&self.sender, msg.clone()) {
 			Ok(_) => (),//println!("{:?} sent input_sharing {:?}", self.ID, msg[0][0]),
 			Err(_) => return Err(ClientError::SendFailure(5)),
 		};
-		println!("State 6 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 		return Ok(3);
 	}
 
