@@ -246,12 +246,13 @@ impl Server {
 						let L = param.L;
 						let B = self.V / L;
 						let S = self.S;
-						// maximun bits length of ySum
+						println!("{}, {}, {}", L, B, S);
+                        // maximun bits length of ySum
 						let Y = (
 							((2f32*(S as f32) + (self.V as f32).log2().ceil())/
 							(L as f32)).ceil()*
 							(L as f32)) as usize;
-
+                        println!("{}", Y);
 						// Degree Test
 						for i in 0..(2*self.V + L + Y + L*S*B + 3*L)/L {
 							msg[1].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
@@ -282,17 +283,22 @@ impl Server {
 						// L2-norm bound test
 						for i in 0..Y/L {
 							msg[7].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
-						}						
+						}				
+                        println!("Y {}", Y);
 						let mut twoPowers = Vec::<u64>::new();
-						for i in 0..Y {
+						let bit_num = (2f32*(S as f32) + (self.V as f32).log2().ceil()) as usize;
+						for i in 0..bit_num {
 							twoPowers.push(2u64.pow(i as u32));
 						}
-						let mut pss = PackedSecretSharing::new(
+						for i in bit_num..Y {
+							twoPowers.push(0u64);
+						}
+                        let mut pss = PackedSecretSharing::new(
 							param.P as u128, param.useR2 as u128, param.useR3 as u128, 
 							param.useD2, param.useD3, Y, L, M
 						);
 						let twoPowers_shares = pss.share(&twoPowers);
-						for share in twoPowers_shares {
+                        for share in twoPowers_shares {
 							msg[8].extend(write_u64_le_u8(share.as_slice()));
 						}
 				
@@ -309,7 +315,12 @@ impl Server {
 							msg = [clients who dropouts or fail tests]
 						*/
 						println!("EC dropouts {:?}", dropouts);
-						for i in 0..M {
+						let mut pss = PackedSecretSharing::new(
+                                param.P as u128, param.useR2 as u128, param.useR3 as u128,
+                                param.useD2, param.useD3, 3*param.L, param.L, M
+                        );
+                        let mut ThreadPool = Vec::new();
+                        for i in 0..M {
 							let mut j = 0;
 							while j < M && corrections[i][j].len() == 0 {
 								// if row_i is empty then party_i must dropout from last round
@@ -319,10 +330,24 @@ impl Server {
 									continue;
 								}
 							}
-							if !test_suit(&(*corrections)[i], &param, &mut dropouts) {
-									dropouts.push(i);
-							}
+                            let corrections_ = (corrections[i]).clone();
+							let param_ = (*param).clone();
+							let child = thread::spawn(move || {
+								test_suit(&corrections_, &param_)
+							});
+							ThreadPool.push(child);
+                            //if !test_suit(&(*corrections)[i], &param, &mut dropouts, &pss) {
+							//		dropouts.push(i);
+							//}
 
+						}
+                        let mut cnt = 0;
+						for t in ThreadPool {
+							let is_pass = t.join().unwrap();
+							if !is_pass {
+								dropouts.push(cnt);
+							}
+							cnt += 1;
 						}
 					   	let mut msg = Vec::new();
 						msg.extend(write_usize_le_u8(dropouts.as_slice()));
@@ -704,6 +729,7 @@ impl Server {
 			sharesPoints.push(R3.modpow((i+1) as u128, P) as u64);
 			shares_remove_empty.push(shares[i].clone());
 		}
+		println!("shares_remove_empty {:?}, sharesPoints {}", shares_remove_empty.len(), sharesPoints.len());
 		let ret = pss.reconstruct(&shares_remove_empty, sharesPoints.as_slice());
 		println!("Reconstruction DONE {:?}", ret);
 		return Ok(ret);

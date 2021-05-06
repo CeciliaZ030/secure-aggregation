@@ -104,7 +104,7 @@ fn main() {
         infoms state thread once successfully process 1 msg.
     */
 	let mut workerThreadPool = Vec::new();
-	for i in 0..32 {
+	for i in 0..70 {
 		let worker = Worker::new(
             &format!("Worker{}", i.to_string()),
             context.clone(), 

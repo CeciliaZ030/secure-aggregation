@@ -1,7 +1,9 @@
 #![allow(non_snake_case)]
 
+
 use num::traits::Unsigned;
 use std::convert::*;
+use std::thread;
 use core::fmt::Debug;
 
 use rand::{thread_rng, Rng};
@@ -29,13 +31,14 @@ pub struct PackedSecretSharing<T> {
 	N: usize,
 }
 
-impl<T> PackedSecretSharing<T>
-where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialOrd,
+impl<T: 'static> PackedSecretSharing<T>
+where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialOrd + Send,
 {
 
 	pub fn new(prime: T, root2: T, root3:T, 
 			   degree2: usize, degree3: usize, total_len: usize, packing_len: usize, num_shares: usize) -> PackedSecretSharing<T> {
-		assert!(total_len % packing_len == 0);
+        println!("{}, {}, {}, {}, {}", degree2, degree3, total_len, packing_len, num_shares);
+        assert!(total_len % packing_len == 0);
 		assert!(packing_len <= degree2);
 		assert!(degree2 <= num_shares);
 		assert!(num_shares <= degree3);
@@ -77,7 +80,7 @@ where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialO
 		let L3 = self.degree3;
 		let B = secrets.len() / self.L;
 		let zero = U::zero();
-
+        println!("cp1");
 		/* Convert U into T
 		T has to be a larger integer type than U to prevent overflow
 		*/
@@ -120,6 +123,68 @@ where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialO
 
 
 	pub fn reconstruct<U>(&self, shares: &[Vec<U>], shares_point: &[U]) -> Vec<U> 
+	where  U: TryFrom<T> + Into<T> + Copy + HasMax + SampleUniform + Unsigned,
+	   	   <U as TryFrom<T>>::Error: Debug
+	{
+		/* Input Format:
+		   [[s00, s01, ..., s0b],	//shares of party 0
+		    [s10, s11, ..., s1b],	//shares of party 1
+		    ...
+		    [sm0, sm1, ..., smb]]	//shares of party m
+
+		Number of shares collected > than threshold
+		but smaller than initially distributed number
+		*/
+		let B = self.V / self.L;
+		let M = shares_point.len();
+		assert!(shares.len() == shares_point.len());
+		assert!(M >= self.degree2);
+		assert!(M <= self.degree3);
+
+		/* Convert U into T
+		For shares, transpose into polys
+		*/
+		let mut converted_ponts = Vec::<T>::new();
+		for p in shares_point {
+			converted_ponts.push((*p).into());
+		}
+		let mut converted_shares = vec![vec![T::zero(); M]; B];
+		for i in 0..M {
+			for (j, s) in shares[i].iter().enumerate() {
+				converted_shares[j][i] = (*s).into();
+			}
+		}
+		assert!(converted_ponts.len() == converted_shares[0].len());
+		/* Evaluate up till the secrets, split to disard randomness
+		Reconstruct each poly
+		*/
+
+		let mut ret: Vec<U> = Vec::new();
+		let mut ThreadPool = Vec::new();
+		for i in 0..B {
+			let converted_ponts_ = converted_ponts.clone();
+			let converted_shares_ = converted_shares[i].clone();
+			let rootTable2_ = self.rootTable2.clone();
+			let prime_ = self.prime.clone();
+			let child = thread::spawn(move || {
+				ntt::lagrange_interpolation(
+					&converted_ponts_, &converted_shares_, &rootTable2_, prime_)
+			});
+			ThreadPool.push(child);
+		}
+		for t in ThreadPool {
+			let mut secrets_block = t.join().unwrap();
+			secrets_block.split_off(self.L);
+			for j in 0..self.L {
+				ret.push(secrets_block[j].try_into().unwrap());
+			}
+		}
+		/* Output Format
+		   [s0, ..., sv]
+		*/
+		ret		
+	}
+    pub fn reconstruct2<U>(&self, shares: &[Vec<U>], shares_point: &[U]) -> Vec<U> 
 	where  U: TryFrom<T> + Into<T> + Copy + HasMax + SampleUniform + Unsigned,
 	   	   <U as TryFrom<T>>::Error: Debug
 	{
