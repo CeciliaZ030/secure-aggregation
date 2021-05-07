@@ -284,10 +284,14 @@ impl Server {
 							msg[7].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
 						}						
 						let mut twoPowers = Vec::<u64>::new();
-						for i in 0..Y {
+						let bit_num = (2f32*(S as f32) + (self.V as f32).log2().ceil()) as usize;
+						for i in 0..bit_num {
 							twoPowers.push(2u64.pow(i as u32));
 						}
-						let mut pss = PackedSecretSharing::new(
+						for i in bit_num..Y {
+							twoPowers.push(0u64);
+						}
+                        let mut pss = PackedSecretSharing::new(
 							param.P as u128, param.useR2 as u128, param.useR3 as u128, 
 							param.useD2, param.useD3, Y, L, M
 						);
@@ -309,7 +313,13 @@ impl Server {
 							msg = [clients who dropouts or fail tests]
 						*/
 						println!("EC dropouts {:?}", dropouts);
-						for i in 0..M {
+						let BENCH_TIMER = Instant::now();
+                        let mut pss = PackedSecretSharing::new(
+							param.P as u128, param.useR2 as u128, param.useR3 as u128, 
+							param.useD2, param.useD3, 3*param.L, param.L, M
+						);
+                        let mut ThreadPool = Vec::new();
+                        for i in 0..M {
 							let mut j = 0;
 							while j < M && corrections[i][j].len() == 0 {
 								// if row_i is empty then party_i must dropout from last round
@@ -319,11 +329,23 @@ impl Server {
 									continue;
 								}
 							}
-							if !test_suit(&(*corrections)[i], &param, &mut dropouts) {
-									dropouts.push(i);
-							}
-
+                            let pss_ = pss.clone();
+							let corrections_ = (corrections[i]).clone();
+							let param_ = (*param).clone();
+							let child = thread::spawn(move || {
+								test_suit(&corrections_, &param_, &pss_)
+							});
+							ThreadPool.push(child);
 						}
+                        let mut cnt = 0;
+						for t in ThreadPool {
+							let is_pass = t.join().unwrap();
+							if !is_pass {
+								dropouts.push(cnt);
+							}
+							cnt += 1;
+						}
+                        println!("EC calculation {:?}ms", BENCH_TIMER.elapsed().as_millis());
 					   	let mut msg = Vec::new();
 						msg.extend(write_usize_le_u8(dropouts.as_slice()));
 						publish(&publisher, msg, "AG");
@@ -691,6 +713,7 @@ impl Server {
 		let P = param.P as u128;
 		let R3 = param.useR3 as u128;
 		let R2 = param.useR2 as u128;
+        let BENCH_TIMER = Instant::now();
 		let pss = PackedSecretSharing::new(
 			P, R2, R3, 
 			param.useD2, param.useD3, self.V, param.L, N
@@ -704,8 +727,9 @@ impl Server {
 			sharesPoints.push(R3.modpow((i+1) as u128, P) as u64);
 			shares_remove_empty.push(shares[i].clone());
 		}
-		let ret = pss.reconstruct(&shares_remove_empty, sharesPoints.as_slice());
-		println!("Reconstruction DONE {:?}", ret);
+		let ret = pss.reconstruct_parallel(&shares_remove_empty, sharesPoints.as_slice());
+		println!("Reconstruction calculation {:?}ms", BENCH_TIMER.elapsed().as_millis());
+        println!("Reconstruction DONE {:?}", ret);
 		return Ok(ret);
 	}
 

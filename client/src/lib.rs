@@ -626,7 +626,7 @@ impl Client{
 					sumY += y % P;
 				}
 				// r * (sum(y) - ySum)
-				L2NST = (sumY + P - self.shares[i][(2*V)/L] as u128) * (l2_norm_sum_rand[0] as u128) % P;
+				L2NST = (sumY + P - self.shares[i][(2*V)/L] as u128);// * (l2_norm_sum_rand[0] as u128) % P;
 				
 				// L2-norm bound test
 				let mut L2NBDT;

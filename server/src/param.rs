@@ -1,6 +1,6 @@
 use std::cmp::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Param {
 	pub P: u64,
 	pub R2: u64,
