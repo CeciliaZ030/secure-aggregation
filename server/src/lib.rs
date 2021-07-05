@@ -294,7 +294,7 @@ impl Server {
 							// L2-norm bit test
 							for i in 0..Y/L {
 								msg[6].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
-							}
+							} 
 							// L2-norm bound test
 							for i in 0..Y/L {
 								msg[7].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
@@ -368,6 +368,11 @@ impl Server {
 						timerTx.send(self.sessTime)
 					},
 					5 => { 
+						/* AG doesn't need to consider dropouts
+							Dropout will results in a empty entry for the missing client
+							and the entry will be removed for reconstruction.
+							Reconstruction successful as long as dropouts under limit.
+						*/
 						finalResult = self.reconstruction(&shares, &dropouts, &param, M);
 						timerTx.send(1)
 					},

@@ -83,6 +83,11 @@ fn main() {
     client.handshake().unwrap();
     client.key_exchange().unwrap();
 
+	// Dropouts s1
+	if input[0] <= 2 {
+		panic!("{:?} dropout!", client.ID);
+	}
+
 	let mut input = Vec::<u64>::new();
 	let mut rng = thread_rng();
 	match malicious {
@@ -104,10 +109,6 @@ fn main() {
 				input.push(rng.gen_range(0, 10));
 			}
 			client.input_sharing_sh(&mut input).unwrap();
-			// Dropouts
-			if input[0] <= 2 {
-				panic!("{:?} dropout!", client.ID);
-			}
 			client.shares_recieving().unwrap();
 		},
 	}
