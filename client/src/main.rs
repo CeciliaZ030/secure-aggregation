@@ -104,14 +104,14 @@ fn main() {
 				input.push(rng.gen_range(0, 10));
 			}
 			client.input_sharing_sh(&mut input).unwrap();
+			// Dropouts
+			if input[0] <= 2 {
+				panic!("{:?} dropout!", client.ID);
+			}
 			client.shares_recieving().unwrap();
 		},
 	}
 
-	// Dropouts
-	if input[0] <= 2 {
-		panic!("{:?} dropout!", client.ID);
-	}
 
     client.aggregation().unwrap();
 	println!("Total elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), &args[1]);
