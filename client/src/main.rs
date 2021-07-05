@@ -87,7 +87,7 @@ fn main() {
 	let mut rng = thread_rng();
 
 	// Dropouts
-	if rng.gen_range(0, 10) <= 2 {
+	if rng.gen_range(0, 100) <= 10 {
 		panic!("{:?} dropout!", client.ID);
 	}
 
