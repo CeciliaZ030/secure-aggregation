@@ -18,18 +18,65 @@ use client::*;
 fn main() {
 
 	let args: Vec<String> = env::args().collect();
-	assert!(args.len() == 4 || args.len() == 7);   
-	let myName = &args[1];
-	let vectorSize = args[2].parse::<usize>().unwrap();
-	let inputBitLimit = args[3].parse::<usize>().unwrap();
-
+	println!("{:?}", args);
+	let V = args[2].parse::<usize>().unwrap();
+	let malicious = args[3].parse::<bool>().unwrap();
+ 
 	let mut client;
-    if args.len() == 7 {
-        client = Client::new(myName, vectorSize, inputBitLimit, 
-        	Some(&args[4]), args[5].parse::<usize>().unwrap(), args[6].parse::<usize>().unwrap());
-    } else {
-        client = Client::new(myName, vectorSize, inputBitLimit, None, 8888, 9999);
-    }
+	match malicious {
+		true => {
+			// malicious with port
+		    if args.len() == 8 {
+		        client = Client::new(
+		        	&args[1],								// client name
+		        	V,								 		// vector size
+		        	Some(args[4].parse::<usize>().unwrap()),// input bit limit
+		        	Some(&args[5]),							// IP
+		        	args[6].parse::<usize>().unwrap(), 		// msg port
+		        	args[7].parse::<usize>().unwrap()		// broadcasting port
+		        );
+		    } 
+		    // malicious without port 
+		    else if args.len() == 5 {
+		        client = Client::new(
+		        	&args[1],								// client name
+		        	V,								 		// vector size
+		        	Some(args[4].parse::<usize>().unwrap()),// input bit limit
+		        	None,									// IP
+		        	8888, 									// msg port
+		        	9999									// broadcasting port
+		        );
+		    } else {
+		    	panic!("Wrong Arguments!");
+		    }
+		},
+		false => {
+			// semi-honest with port
+		    if args.len() == 7 {
+		        client = Client::new(
+		        	&args[1],								// client name
+		        	V, 										// vector size
+		        	None,
+		        	Some(&args[4]),							// IP
+		        	args[5].parse::<usize>().unwrap(), 		// msg port
+		        	args[6].parse::<usize>().unwrap()		// broadcasting port
+		        );
+		    } 
+		    // semi-honest without port
+		    else if args.len() == 4 {
+		        client = Client::new(
+		        	&args[1],								// client name
+		        	V, 										// vector size
+		        	None,
+		        	None,									// IP
+		        	8888, 									// msg port
+		        	9999									// broadcasting port
+		        );
+		    } else {
+		    	panic!("Wrong Arguments!");
+		    }
+		},
+	}
 
     let BENCH_TIMER = Instant::now();
 
@@ -37,26 +84,37 @@ fn main() {
     client.key_exchange().unwrap();
 
 	let mut input = Vec::<u64>::new();
-	let mut inputBitMod = 0;
-	for i in 0..inputBitLimit {
-		inputBitMod += 2u64.pow(i as u32);
-	}
 	let mut rng = thread_rng();
-	for i in 0..vectorSize {
-		//input.push(20 % inputBitMod);
-		input.push(rng.gen_range(0, 3) % inputBitMod);
+	match malicious {
+		true => {
+			let mut inputBitMod = 0;
+			let S = args[4].parse::<usize>().unwrap();
+			for i in 0..S {
+				inputBitMod += 2u64.pow(i as u32);
+			}
+			for i in 0..V {
+				input.push(rng.gen_range(0, 10) % inputBitMod);
+			}
+			client.input_sharing_ml(&mut input).unwrap();
+		    client.shares_recieving().unwrap();
+		    client.error_correction().unwrap();
+		},
+		false => {
+			for i in 0..V {
+				input.push(rng.gen_range(0, 10));
+			}
+			client.input_sharing_sh(&mut input).unwrap();
+			client.shares_recieving().unwrap();
+		},
 	}
 
 	// Dropouts
-	// if input[0] < u64::MAX/10 {
-	// 	panic!("{:?} dropout!", client.ID);
-	// }
+	if input[0] <= 2 {
+		panic!("{:?} dropout!", client.ID);
+	}
 
-	client.input_sharing(&mut input).unwrap();
-    client.shares_collection().unwrap();
-    client.error_correction().unwrap();
     client.aggregation().unwrap();
-	println!("Total elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), myName);
+	println!("Total elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), &args[1]);
 
 }
 

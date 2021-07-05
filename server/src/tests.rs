@@ -142,12 +142,15 @@ pub fn test_suit(corrections: &Vec<Vec<u64>>, param: &Param) -> bool {
 		corrections_remove_empty.push(corrections[j].clone());
 	}
 	let result = pss.reconstruct2(&corrections_remove_empty, evalPoints.as_slice());
-
+	/*
+		Todo: check Degree test in result[0..param.L] 
+			  degree has to be D2
+	*/
 	let mut sum = 0;
 	for i in 2*param.L..3*param.L {
 		sum = (sum + result[i]) % param.P;
 	}
-	//println!("EC result (middle section should be 0s): {:?} \n sum (should be 0): {:?}", result, sum);
+	println!("EC result (middle section should be 0s): {:?} \n sum (should be 0): {:?}", result, sum);
 	/*
 		Input Bit Test, Quadratic test, L2-norm bit test
 		secrets should be 0

@@ -59,8 +59,13 @@ impl Param {
 		}
 	}
 
+	/* Reconstruction Limit
+		Theoretical limit to ensure security.  
+		Actual polynomial limit should be D2, 
+		which must be smaller than Reconstruction Limit
+	*/
 	pub fn calculate_semi_honest(&mut self, 
-		numClients: usize, vectorSize: usize, inputBitLimit: usize, dropouts: usize) -> Vec<u64> {
+		numClients: usize, vectorSize: usize, dropouts: usize) -> Vec<u64> {
 		
 		let mut reconstructLimit = numClients - dropouts;
 
@@ -107,14 +112,14 @@ impl Param {
 			self.useR3,				// three-power root of unity
 			self.useD2 as u64,		// degree2
 			self.useD3 as u64,		// degree3
-			self.L as u64
+			self.L as u64			// block length			
 		];
 	}
 
 	pub fn calculate_malicious(&mut self, 
-		numClients: usize, vectorSize: usize, inputBitLimit: usize, dropouts: usize, corruption: usize) -> Vec<u64> {
+		numClients: usize, vectorSize: usize, dropouts: usize, corruption: usize) -> Vec<u64> {
 		
-		let mut reconstructLimit = numClients - (dropouts + 2 * corruption);
+		let mut reconstructLimit = (numClients - (dropouts + 2 * corruption))/2;
 
 		// find the nearest exponent of two
 		/* Ex: degree2 = 300 -> 256
@@ -157,7 +162,7 @@ impl Param {
 			self.useR3,				// three-power root of unity
 			self.useD2 as u64,		// degree2
 			self.useD3 as u64,		// degree3
-			self.L as u64
+			self.L as u64			// block length
 		];
 	}
 }

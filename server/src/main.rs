@@ -28,18 +28,33 @@ fn main() {
     /*
         May provide IP addr & two different ports# 
     */
-    assert!(args.len() == 9 || args.len() == 12);   
-    let server = Arc::new(Server::new(
-        args[1].parse::<usize>().unwrap(),          // MAX clients
-        args[2].parse::<usize>().unwrap(),          // Vector Length
-        args[3].parse::<usize>().unwrap(),          // Input Bit Limit
-        args[4].parse::<usize>().unwrap(),          // Dropouts
-        args[5].parse::<usize>().unwrap(),          // Session time
-        args[6].parse::<usize>().unwrap(),          // IS Session time
-        args[7].parse::<usize>().unwrap(),           // Corrupted Parties
-        args[8].parse::<bool>().unwrap(),           // Malicious Flag
-        param
-    ));
+    assert!(args.len() == 7 || args.len() == 9 || args.len() == 12); 
+    let server;
+    if args.len() == 9 {
+        server = Arc::new(Server::new_malicious(
+            args[1].parse::<usize>().unwrap(),          // MAX clients
+            args[2].parse::<usize>().unwrap(),          // Vector Length
+            args[3].parse::<usize>().unwrap(),          // Input Bit Limit
+            args[4].parse::<usize>().unwrap(),          // Dropouts
+            args[5].parse::<usize>().unwrap(),          // Session time
+            args[6].parse::<usize>().unwrap(),          // IS Session time
+            args[7].parse::<usize>().unwrap(),          // Corrupted Parties
+            args[8].parse::<bool>().unwrap(),           // Malicious Flag
+            param
+        ));
+    } else if args.len() == 7 {
+        server = Arc::new(Server::new_semi_honest(
+            args[1].parse::<usize>().unwrap(),          // MAX clients
+            args[2].parse::<usize>().unwrap(),          // Vector Length
+            args[3].parse::<usize>().unwrap(),          // Dropouts
+            args[4].parse::<usize>().unwrap(),          // Session time
+            args[5].parse::<usize>().unwrap(),          // IS Session time
+            args[6].parse::<bool>().unwrap(),           // Malicious Flag
+            param
+        ));
+    } else {
+        panic!("Worng Arguments!");
+    }
     let primes = vec![2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,
     73,79,83,89,97,101,103,107,109,113,127,131,137,139,149,151,157,163,167,173,
     179,181,191,193,197,199,211,223,227,229,233,239,241,251,257,263,269,271,277,
@@ -104,7 +119,7 @@ fn main() {
         infoms state thread once successfully process 1 msg.
     */
 	let mut workerThreadPool = Vec::new();
-	for i in 0..70 {
+	for i in 0..10 {
 		let worker = Worker::new(
             &format!("Worker{}", i.to_string()),
             context.clone(), 

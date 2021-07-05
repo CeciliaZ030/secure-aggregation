@@ -34,7 +34,9 @@ use aes_gcm::aead::{Aead, NewAead};
 use pss::*;
 
 mod sockets;
+mod util;
 use sockets::*;
+use util::*;
 
 #[derive(Debug)]
 pub enum ClientError {
@@ -79,7 +81,7 @@ pub struct Client{
 											all clients assign shares in this order
 											*/
 	vectorSize: usize,
-	inputBitLimit: usize,
+	inputBitLimit: Option<usize>,
 	param: Option<Param>,
 	shares: Vec<Vec<u64>>,
 }
@@ -87,7 +89,8 @@ pub struct Client{
 
 impl Client{
 	
-	pub fn new(ID: &str, vectorSize: usize, inputBitLimit: usize, ip: Option<&str>, port1: usize, port2: usize) -> Client{
+	pub fn new(ID: &str, vectorSize: usize, inputBitLimit: Option<usize>,
+		ip: Option<&str>, port1: usize, port2: usize) -> Client{
 
     	let context = zmq::Context::new();
 		let sender = context.socket(zmq::DEALER).unwrap();
@@ -158,11 +161,10 @@ impl Client{
 	pub fn handshake(&mut self) -> Result<usize, ClientError> {
 		let BENCH_TIMER = Instant::now();
 	/*
-			Client say Helloo
+			Client say Hello
 			Server send unique signKey
 			Generate veriKey from signKey
 	*/
-
 		match send(&self.sender, &format!("Hello, I'm {}", self.ID)) {
 			Ok(_) => (),
 			Err(_) => return Err(ClientError::SendFailure(1)),
@@ -204,7 +206,6 @@ impl Client{
 			Generate Deffie-Helman key
 			Sign DH key and send
 	*/
-
 		let publicKeyVec = self.publicKey.to_bytes();
 		let signedPublicKey: Signature = self.signKey.sign(&publicKeyVec);
 
@@ -220,7 +221,6 @@ impl Client{
 			RecvType::string(s) => (),
 			_ => return Err(ClientError::UnexpectedRecv(msg)),
 		};
-
 	/*		 
 			Wait for state change
 			Server recv all DH keys
@@ -251,10 +251,11 @@ impl Client{
 	}
 	
 
-	pub fn input_sharing(&mut self, input: &mut Vec<u64>) -> Result<usize, ClientError> {
+	pub fn input_sharing_ml(&mut self, input: &mut Vec<u64>) -> Result<usize, ClientError> {
 	/*		 
 			Wait for state change
 			Recv sharing parameters
+			Calculate EC matrix: [x, y, randomness...]
 			Perform pss
 	*/
 		assert!(input.len() == self.vectorSize);
@@ -283,17 +284,13 @@ impl Client{
 		let V = self.vectorSize;
 		let L = param.L;
 		let B = V/L;
-		let S = self.inputBitLimit;
+		let S = self.inputBitLimit.unwrap();
 		let P = param.P as u64;
 		let Y = (
 			((2f32*(S as f32) + (V as f32).log2().ceil())/
 			(L as f32)).ceil()*
 			(L as f32)) as usize;
 
-		let mut pss = PackedSecretSharing::new(
-			param.P, param.R2, param.R3, 
-			param.D2, param.D3, 5 * V, L, N
-		);
 		let x = input.clone();
 	/*
 			NOTE: heavy communication overhead if limit bit number
@@ -381,13 +378,16 @@ impl Client{
 		input.push(P - rand_sum);
 
 		assert!(input.len() == 2*V + L + Y + L*S*B + 3*L);
-
+		let mut pss = PackedSecretSharing::new(
+			param.P, param.R2, param.R3, 
+			param.D2, param.D3,
+			2*V+L+Y+L*S*B+3*L, 
+			L, N
+		);
 		let SHARE_START = Instant::now();
-		//println!("input {:?}", input);
 		let resultMatrix = pss.share(&input);
 		assert!(resultMatrix.len() == N);
 		assert!(resultMatrix[0].len() == (2*V + L + Y + L*S*B + 3*L)/L);
-		//println!("resultMatrix {:?}", resultMatrix);
 		println!("{:?} sharing time {:?}", self.ID, SHARE_START.elapsed().as_millis());
 	/* 
 		 	Encrypt shares for each DH sharedKey
@@ -419,24 +419,89 @@ impl Client{
 		};
 	}
 
-	pub fn shares_collection(&mut self) -> Result<usize, ClientError> {
+pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, ClientError> {
+	/*		 
+			Wait for state change
+			Recv sharing parameters
+			Perform pss
+	*/
+		assert!(input.len() == self.vectorSize);
+
+		let waitRes = self.state_change_broadcast("IS");
+		let BENCH_TIMER = Instant::now();
+
+		let sharingParams = match waitRes {
+			RecvType::bytes(m) => {
+				assert_eq!(m.len(), 6*8);
+				read_le_u64(m)
+			},
+			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
+		};
+
+		let mut param = Param {
+			P: sharingParams[0] as u128,
+			R2: sharingParams[1] as u128,
+			R3: sharingParams[2] as u128,
+			D2: sharingParams[3] as usize,
+			D3: sharingParams[4] as usize,
+			L: sharingParams[5] as usize,
+		};
+		
+		let N = self.shareKeys.len();
+		let V = self.vectorSize;
+		let L = param.L;
+		let B = V/L;
+		let P = param.P as u64;
+
+		assert!(input.len() == V);
+		let mut pss = PackedSecretSharing::new(
+			param.P, param.R2, param.R3, 
+			param.D2, param.D3,
+			V, L, N
+		);
+		let SHARE_START = Instant::now();
+		let resultMatrix = pss.share(&input);
+		assert!(resultMatrix.len() == N);
+		assert!(resultMatrix[0].len() == B);
+		println!("{:?} sharing time {:?}", self.ID, SHARE_START.elapsed().as_millis());
+	/* 
+		 	Encrypt shares for each DH sharedKey
+			send [shares_c1, shares_c2, ....  ]
+	*/
+		let mut msg = Vec::new();
+		for (i, pk) in self.shareOrder.iter().enumerate() {
+			
+			let shareKey = self.shareKeys.get(pk).unwrap();
+			let k = GenericArray::from_slice(&shareKey);
+			let cipher = Aes256Gcm::new(k);
+			let nonce = GenericArray::from_slice(b"unique nonce"); //Self.pk
+			let mut shareBytes = Vec::new();
+			for r in &resultMatrix[i] {
+				shareBytes.extend(&r.to_le_bytes());
+			}
+			let encryptedShares = cipher.encrypt(nonce, shareBytes
+										.as_slice())
+		    					   		.expect("encryption failure!");	
+		    msg.push(encryptedShares);
+		}
+		self.param = Some(param);
+		println!("State 3 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
+		match send_vecs(&self.sender, msg) {
+			Ok(_) => {
+				return Ok(3)
+			},
+			Err(_) => return Err(ClientError::SendFailure(3)),
+		};
+	}
+
+	pub fn shares_recieving(&mut self) -> Result<usize, ClientError> {
 		let BENCH_TIMER = Instant::now();
 	/* 
 			Loop to collect shares
 			For each shares, Dec(sharedKey, msg)
 			Then add to sum
 	*/
-		let param = self.param.unwrap();
 		let N = self.shareKeys.len();
-		let V = self.vectorSize;
-		let L = param.L;
-		let B = V/L;
-		let S = self.inputBitLimit;
-		let Y = (
-			((2f32*(S as f32) + (V as f32).log2().ceil())/
-			(L as f32)).ceil()*
-			(L as f32)) as usize;
-
 		let mut cnt = 0;
 		self.shares = vec![vec![0u64]; N];
 		loop {
@@ -479,13 +544,12 @@ impl Client{
 			 					return Err(ClientError::EncryptionError(4));
 			 				}
 			 			};
-			 			assert!(plaintext.len() == (2*V + L + Y + L*S*B + 3*L)/L);
+			 			//assert!(plaintext.len() == (2*V + L + Y + L*S*B + 3*L)/L);
 			 			self.shares[idx] = plaintext;
 			 			cnt += 1;
 	        	 	},
 	        	 	_ => return Err(ClientError::UnexpectedRecv(msg)),
 	        	 };
-
 	        };
 	        // stop when recv shares from each peer
 			if(cnt == N){
@@ -508,7 +572,7 @@ impl Client{
 		let L = self.param.unwrap().L;
 		let B = V/L;
 		let P = self.param.unwrap().P;
-		let S = self.inputBitLimit;
+		let S = self.inputBitLimit.unwrap();
 		let Y = (
 			((2f32*(S as f32) + (V as f32).log2().ceil())/
 			(L as f32)).ceil()*
@@ -670,12 +734,11 @@ impl Client{
 
 		let waitRes = self.state_change_broadcast("AG");
 		let BENCH_TIMER = Instant::now();
-
 		let dropouts = match waitRes {
 			RecvType::bytes(b) => read_le_u64(b),
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
-		//println!("{:?} aggregation, skipping {:?}", self.ID, dropouts);
+		println!("{:?} aggregation, skipping {:?}", self.ID, dropouts);
 		let mut aggregation = vec![0u64; B];
 		for i in 0..self.shares.len() {
 			if !dropouts.contains(&(i as u64)) {
@@ -721,126 +784,3 @@ impl Client{
 		}
 	}
 }
-
-fn sub_task(subscriber: zmq::Socket, 
-	buffer: Arc<RwLock<HashMap<Vec<u8>, RecvType>>>, sender: mpsc::Sender<Vec<u64>>) -> Result<usize, ClientError> {
-    /*
-		Subscriber thread
-		Keep recieving from socket
-		Consume msg emmited previously, add to buffer if it's new
-    */
-    loop {
-        let (topic, data) = consume_broadcast(&subscriber);
-        if buffer.read().unwrap().contains_key(&topic) {
-            continue;
-        }
-        if topic == b"EC" {
-        	match data {
-        		RecvType::matrix(ref m) => {
-        			//println!("sub_task {:?}, {:?}", str::from_utf8(&topic).unwrap(), data[]);
-        			sender.send(read_le_u64(m[0].clone()))
-        		},
-        		_ => return Err(ClientError::UnexpectedRecv(data)),
-        	};
-        }
-        match buffer.write() {
-            Ok(mut guard) => guard.insert(topic, data),
-            Err(_) => return Err(ClientError::MutexLockFail(0)),
-        };
-    }
-    Ok(0)
-}
-
-pub fn write_u64_le_u8(v: &[u64]) -> &[u8] {
-	/*
-		Write u64 integer array into continuous bytes array
-	*/
-    unsafe {
-        std::slice::from_raw_parts(
-            v.as_ptr() as *const u8,
-            v.len() * std::mem::size_of::<u64>(),
-        )
-    }
-}
-
-fn read_le_u128(input: Vec<u8>) -> Vec<u128> {
-	/*
-		Read little endian bytes Vec<u8> of u128 integer array
-		back to Vec<u128>
-	*/
-    let mut res = Vec::<u128>::new();
-    if input.len() == 0 {
-    	return res;
-    }
-    let mut ptr = &mut input.as_slice();
-    loop {
-        let (int_bytes, rest) = ptr.split_at(std::mem::size_of::<u128>());
-        *ptr = rest;
-        res.push(u128::from_le_bytes(int_bytes.try_into().unwrap()));
-        if (rest.len() < 8) {
-            break;
-        }
-    }
-    res
-}
-
-fn read_le_u64(input: Vec<u8>) -> Vec<u64> {
-	/*
-		Read little endian bytes Vec<u8> of u64 integer array
-		back to Vec<u64>
-	*/
-    let mut res = Vec::<u64>::new();
-    if input.len() == 0 {
-    	return res;
-    }
-    let mut ptr = &mut input.as_slice();
-    loop {
-        let (int_bytes, rest) = ptr.split_at(std::mem::size_of::<u64>());
-        *ptr = rest;
-        res.push(u64::from_le_bytes(int_bytes.try_into().unwrap()));
-        if (rest.len() < 8) {
-            break;
-        }
-    }
-    res
-}
-
-
-pub fn read_le_usize(input: &Vec<u8>) -> Vec<u64> {
-	/*
-		Read little endian bytes Vec<u8> of usize integer array
-		back to Vec<usize>
-	*/
-    let mut res = Vec::<u64>::new();
-    if input.len() == 0 {
-    	return res;
-    }
-    let mut ptr = &mut input.as_slice();
-    loop {
-        let (int_bytes, rest) = ptr.split_at(std::mem::size_of::<u64>());
-        *ptr = rest;
-        res.push(u64::from_le_bytes(int_bytes.try_into().unwrap()));
-        if rest.len() < 8 {
-            break;
-        }
-    }
-    res
-}
-
-
-fn into_be_u64_vec(mut input: u64, size: usize) -> Vec<u64> {
-	/*
-		Convert u64 integer into Vec<u64> = [bit0 as u64, bit2 as u64, ...]
-		Big endian.
-	*/
-	let mut bitArr = Vec::<u64>::new();
-	while input > 0 {
-		bitArr.push((input % 2) as u64);
-		input = input >> 1;
-	}
-	for _ in bitArr.len()..size {
-		bitArr.push(0)
-	}
-	bitArr
-}
-

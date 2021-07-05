@@ -3,6 +3,9 @@ use zmq::Message;
 use zmq::Socket;
 use zmq::SNDMORE;
 
+use crate::*;
+use std::sync::*;
+
 #[derive(Debug, Clone)]
 pub enum RecvType {
 	bytes(Vec<u8>),
@@ -102,6 +105,41 @@ pub fn consume_broadcast(socket: &Socket) -> (Vec<u8>, RecvType) {
 		return (topic, RecvType::string(stringRes));
 	}
 }
+
+pub fn sub_task(subscriber: zmq::Socket, 
+	buffer: Arc<RwLock<HashMap<Vec<u8>, RecvType>>>, sender: mpsc::Sender<Vec<u64>>) -> Result<usize, ClientError> {
+    /*
+		Subscriber thread
+		Keep recieving from socket
+		Consume msg emmited previously, add to buffer if it's new
+    */
+    loop {
+        let (topic, data) = consume_broadcast(&subscriber);
+        if buffer.read().unwrap().contains_key(&topic) {
+            continue;
+        }
+        if topic == b"EC" {
+        	match data {
+        		// m = [[dorpouts], [degree test], [Input Bit test], ....]
+        		RecvType::matrix(ref m) => sender.send(read_le_u64(m[0].clone())),
+        		_ => return Err(ClientError::UnexpectedRecv(data)),
+        	};
+        }
+		if topic == b"AG" {
+			match data {
+				// m = [dropouts]
+        		RecvType::bytes(ref b) => sender.send(read_le_u64(b.clone())),
+        		_ => return Err(ClientError::UnexpectedRecv(data)),
+        	};
+		}
+        match buffer.write() {
+            Ok(mut guard) => guard.insert(topic, data),
+            Err(_) => return Err(ClientError::MutexLockFail(0)),
+        };
+    }
+    Ok(0)
+}
+
 
 /* data type: 
 	Vec<Vec<u8>>, &Vec<Vec<u8>>, [u8] and &[u8] on heap,

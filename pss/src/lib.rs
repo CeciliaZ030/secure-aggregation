@@ -37,7 +37,7 @@ where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialO
 
 	pub fn new(prime: T, root2: T, root3:T, 
 			   degree2: usize, degree3: usize, total_len: usize, packing_len: usize, num_shares: usize) -> PackedSecretSharing<T> {
-        println!("{}, {}, {}, {}, {}", degree2, degree3, total_len, packing_len, num_shares);
+        //println!("{}, {}, {}, {}, {}", degree2, degree3, total_len, packing_len, num_shares);
         assert!(total_len % packing_len == 0);
 		assert!(packing_len <= degree2);
 		assert!(degree2 <= num_shares);
@@ -75,12 +75,11 @@ where T: ModPow + Unsigned + Copy + Debug + From<u64> + SampleUniform + PartialO
 		/* Input Format
 		   [x0, ..., xv]
 		*/
-		//assert!(secrets.len() == self.V);	
+		assert!(secrets.len() == self.V);	
 		let L2 = self.degree2;
 		let L3 = self.degree3;
 		let B = secrets.len() / self.L;
 		let zero = U::zero();
-        println!("cp1");
 		/* Convert U into T
 		T has to be a larger integer type than U to prevent overflow
 		*/

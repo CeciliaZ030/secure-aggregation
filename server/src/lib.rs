@@ -46,9 +46,9 @@ pub struct Server {
 	STATE: RwLock<usize>,	//readWrite Lock
 	MAX: RwLock<usize>,
 	V: usize,											// Vector size
-	S: usize,											// Input Bit Limit
+	S: Option<usize>,									// Input Bit Limit (only used in ML)
 	D: usize,											// Dropouts
-	T: usize,											// Corruptions
+	T: Option<usize>,									// Corruptions
 	sessTime: usize,									// Time allowed for each state
 	ISsessTime: usize,									// Time allowed for each state
 	malFg: bool,
@@ -62,7 +62,7 @@ pub struct Server {
 
 impl Server {
 
-	pub fn new(maxClients: usize, 
+	pub fn new_malicious(maxClients: usize, 
 		vectorSize: usize, inputBitLimit: usize,
 		dropouts: usize, sessionTime: usize, ISsessTime: usize,
 		corruption: usize, malicious: bool, mut param: Param) -> Server {
@@ -72,9 +72,33 @@ impl Server {
 			STATE: RwLock::new(1usize),
 			MAX: RwLock::new(maxClients),
 			V: vectorSize,
-			S: inputBitLimit,
+			S: Some(inputBitLimit),
 			D: dropouts,
-			T: corruption,
+			T: Some(corruption),
+			sessTime: sessionTime,
+			ISsessTime: ISsessTime,
+			malFg: malicious,
+			param: RwLock::new(param),
+			clientList: RwLock::new(Vec::new()),
+			clientProfiles: RwLock::new(HashMap::<Vec<u8>, Profile>::new()),
+			correctionVecs: Mutex::new(Vec::new()),
+			shares: Mutex::new(Vec::new()),
+		}
+	}
+
+	pub fn new_semi_honest(maxClients: usize, 
+		vectorSize: usize,
+		dropouts: usize, sessionTime: usize, ISsessTime: usize,
+		malicious: bool, mut param: Param) -> Server {
+		println!("maxClients {:?} vectorSize {} dropouts {} sessionTime {} ISsessTime {} malicious {}", 
+			maxClients, vectorSize, dropouts, sessionTime, ISsessTime, malicious);
+		Server {
+			STATE: RwLock::new(1usize),
+			MAX: RwLock::new(maxClients),
+			V: vectorSize,
+			S: None,
+			D: dropouts,
+			T: None,
 			sessTime: sessionTime,
 			ISsessTime: ISsessTime,
 			malFg: malicious,
@@ -196,9 +220,6 @@ impl Server {
 							format_clientData(&mut *profiles, &mut *list, "veriKey").unwrap(), 
 							"HS");
 						M = list.len();
-						// for (i, c) in (&*list).iter().enumerate() {
-						// 	print!("{}: {:?}, ",i, str::from_utf8(c).unwrap());
-						// }
 						timerTx.send(self.sessTime)
 					},
 					2 => {
@@ -206,19 +227,17 @@ impl Server {
 						   removed from *list and *profiles if pk not found
 						   Not using recording dropouts before IS begins
 						*/
-						println!("cp {:?}", *list);
 						publish_vecs(
 							&publisher, 
 							format_clientData(&mut *profiles, &mut *list,
 							 "publicKey").unwrap(), 
 							"KE");
-						println!("cp2");
 						M = list.len();
 						let sharingParams = match self.malFg {
-							false => param.calculate_semi_honest(M, self.V, self.S, self.D),
-							true => param.calculate_malicious(M, self.V, self.S, self.D, self.T),
+							false => param.calculate_semi_honest(M, self.V, self.D),
+							true => param.calculate_malicious(M, self.V, self.D, self.T.unwrap()),
 						};
-						println!("sharingParams {:?}", sharingParams);
+						println!("malicious: {:?}, sharingParams {:?}", self.malFg, sharingParams);
 						println!("L {:?}", sharingParams[5]);
 						let mut spBytes = Vec::new();
 						for sp in sharingParams {
@@ -231,83 +250,81 @@ impl Server {
 					3 => {
 						/* Check dropouts from IS
 						We don't remove anyone cuz resizing array is slow
-						msg = [[dorpouts], [degree test], [Input Bit test], ....]
 						*/
-					   	let mut msg = vec![Vec::new(); 9];					//TODO: more tests to come....
 						let mut new_dropouts = Vec::new();
 						for (i, c) in list.iter().enumerate() {
 							if !profiles.get(c).unwrap().hasShared {
-								new_dropouts.push(i); 
-								msg[0].extend(&(i.to_le_bytes()));
+								new_dropouts.extend(&(i.to_le_bytes()));
+								dropouts.push(i);
 							}
 						}
-						dropouts.extend(new_dropouts.clone());
-
-						let L = param.L;
-						let B = self.V / L;
-						let S = self.S;
-						println!("{}, {}, {}", L, B, S);
-                        // maximun bits length of ySum
-						let Y = (
-							((2f32*(S as f32) + (self.V as f32).log2().ceil())/
-							(L as f32)).ceil()*
-							(L as f32)) as usize;
-                        println!("{}", Y);
-						// Degree Test
-						for i in 0..(2*self.V + L + Y + L*S*B + 3*L)/L {
-							msg[1].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
+						println!("IS dropouts {:?}", dropouts);
+						if self.malFg {
+							// msg = [[dorpouts], [degree test], [Input Bit test], ....]
+					   		let mut msg = vec![Vec::new(); 9];
+					   		msg[0] = new_dropouts;
+							let L = param.L;
+							let B = self.V / L;
+							let S = self.S.unwrap();
+							println!("{}, {}, {}", L, B, S);
+	                        // maximun bits length of ySum
+							let Y = (
+								((2f32*(S as f32) + (self.V as f32).log2().ceil())/
+								(L as f32)).ceil()*
+								(L as f32)) as usize;
+	                        println!("{}", Y);
+							// Degree Test
+							for i in 0..(2*self.V + L + Y + L*S*B + 3*L)/L {
+								msg[1].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
+							}
+							// Input Bit Test
+							for i in 0..B*S {
+								msg[2].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
+							}	
+							// Quadratic Test
+							for i in 0..B {
+								msg[3].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
+							}
+							// Input bound test
+							for i in 0..B {
+								msg[4].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
+							}
+							// L2-norm sum test
+							msg[5].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
+							// L2-norm bit test
+							for i in 0..Y/L {
+								msg[6].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
+							}
+							// L2-norm bound test
+							for i in 0..Y/L {
+								msg[7].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
+							}				
+	                        println!("Y (#blocks taken by y_bits) {}", Y);
+							let mut twoPowers = Vec::<u64>::new();
+							let bit_num = (2f32*(S as f32) + (self.V as f32).log2().ceil()) as usize;
+							for i in 0..bit_num {
+								twoPowers.push(2u64.pow(i as u32));
+							}
+							for i in bit_num..Y {
+								twoPowers.push(0u64);
+							}
+	                        let mut pss = PackedSecretSharing::new(
+								param.P as u128, param.useR2 as u128, param.useR3 as u128, 
+								param.useD2, param.useD3, Y, L, M
+							);
+							let twoPowers_shares = pss.share(&twoPowers);
+	                        for share in twoPowers_shares {
+								msg[8].extend(write_u64_le_u8(share.as_slice()));
+							}
+							/* M is updated 
+							Corrections only contains the clients didn't dropout from IS
+							*/
+							println!("EC params {:?}", msg.len());
+							*corrections = vec![vec![Vec::new(); M]; M];
+							publish_vecs(&publisher, msg, "EC");
+						} else {
+							publish(&publisher, new_dropouts, "AG");
 						}
-					
-						// Input Bit Test
-						for i in 0..B*S {
-							msg[2].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
-						}	
-						
-						// Quadratic Test
-						for i in 0..B {
-							msg[3].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
-						}
-						
-						// Input bound test
-						for i in 0..B {
-							msg[4].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
-						}
-
-						// L2-norm sum test
-						msg[5].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
-
-						// L2-norm bit test
-						for i in 0..Y/L {
-							msg[6].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
-						}
-						// L2-norm bound test
-						for i in 0..Y/L {
-							msg[7].extend(&(OsRng.next_u64() % param.P).to_le_bytes());
-						}				
-                        println!("Y {}", Y);
-						let mut twoPowers = Vec::<u64>::new();
-						let bit_num = (2f32*(S as f32) + (self.V as f32).log2().ceil()) as usize;
-						for i in 0..bit_num {
-							twoPowers.push(2u64.pow(i as u32));
-						}
-						for i in bit_num..Y {
-							twoPowers.push(0u64);
-						}
-                        let mut pss = PackedSecretSharing::new(
-							param.P as u128, param.useR2 as u128, param.useR3 as u128, 
-							param.useD2, param.useD3, Y, L, M
-						);
-						let twoPowers_shares = pss.share(&twoPowers);
-                        for share in twoPowers_shares {
-							msg[8].extend(write_u64_le_u8(share.as_slice()));
-						}
-				
-						/* M is updated 
-						Corrections only contains the clients didn't dropout
-						*/
-						println!("IS dropouts {:?}, EC params {:?}", new_dropouts, msg.len());
-						*corrections = vec![vec![Vec::new(); M]; M];
-						publish_vecs(&publisher, msg, "EC");
 						timerTx.send(self.sessTime)
 					},
 					4 => {
@@ -336,10 +353,6 @@ impl Server {
 								test_suit(&corrections_, &param_)
 							});
 							ThreadPool.push(child);
-                            //if !test_suit(&(*corrections)[i], &param, &mut dropouts, &pss) {
-							//		dropouts.push(i);
-							//}
-
 						}
                         let mut cnt = 0;
 						for t in ThreadPool {
@@ -362,7 +375,12 @@ impl Server {
 				};
 				match res {
 					Ok(_) => {
-						*stateGuard += 1;
+						if !self.malFg && *stateGuard == 3 {
+							// skip state 4 in semi-honest case
+							*stateGuard += 2;
+						} else {
+							*stateGuard += 1;
+						}
 						println!("Server: STATE change from {:?} to {:?}", *stateGuard-1, *stateGuard);
 						recvCnt = 0;
 						match timesUp.write() {
@@ -396,19 +414,13 @@ impl Server {
 		let mut i = 0;
 		loop {
 			let clientID = take_id(&worker.dealer);
-			// println!("worker loop {:?}", i);
-			// println!("{} Taken {:?}", 
-				// worker.ID, 
-				// String::from_utf8(clientID.clone()).unwrap());
-
 			let msg = recv(&worker.dealer);
-
 			let res = match *(self.STATE.read().unwrap()) {
 				1 => self.handshake(&worker, clientID, msg),
 				2 => self.key_exchange(&worker, clientID, msg),
 				3 => self.input_sharing(&worker, clientID, msg),
 				4 => self.error_correction(&worker, clientID, msg),
-				5 => self.shares_collection(&worker, clientID, msg),
+				5 => self.result_collection(&worker, clientID, msg),
 				_ => Err(WorkerError::UnknownState(0)),
 			};
 			i += 1;
@@ -440,13 +452,11 @@ impl Server {
 			},
 			Err(_) => return Err(WorkerError::MutexLockFail(1)),
 		};
-
 	/*
 		Generate ECDSA keys and send
 		Create new profile
 		Write to mutex (don't need check_state)
 	*/
-
 		let signKey = SigningKey::random(&mut OsRng);
 		let veriKey = VerifyKey::from(&signKey);
 		send(&worker.dealer,
@@ -635,14 +645,12 @@ impl Server {
 		return Ok(4);
 	}
 
-	fn shares_collection(&self, 
+	fn result_collection(&self, 
 		worker: &Worker, clientID: Vec<u8>, msg: RecvType) -> Result<usize, WorkerError> {
 	/*
 		Check client exist
 		Get shares & signature
 	*/
-
-	//?
 		if !self.check_exist(&clientID) {
 			send(&worker.dealer,"Error: Your profile not found", &clientID);
 			return Err(WorkerError::ClientNotFound(5))
