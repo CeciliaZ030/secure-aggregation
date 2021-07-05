@@ -690,7 +690,6 @@ impl Server {
 				.read().unwrap()
 				.iter().position(|s| s == &clientID)
 				.unwrap();
-		println!("recv aggregated share from #{:?}", idx);
 		match verifyResult {
 			Ok(_) => {
 				let mut shares = self.shares.lock().unwrap();

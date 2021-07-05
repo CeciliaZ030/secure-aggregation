@@ -622,8 +622,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 			if dropouts.contains(&(i as u64)) {
 				println!("{:?}", self.shares[i]);
 			}
-			if !dropouts.contains(&(i as u64)) { 
-				assert!(self.shares[i] != vec![0u64]);
+			if !dropouts.contains(&(i as u64)) || self.shares[i] != vec![0u64] { 
 				tests = vec![0u64; 3];
 
 				// Degree Test
