@@ -125,7 +125,6 @@ pub fn test_suit1(corrections: &Vec<Vec<u64>>, param: &Param, dropout: &mut Vec<
 }
 
 pub fn test_suit(corrections: &Vec<Vec<u64>>, param: &Param) -> bool {
-
 	let M = corrections.len();
 	let P = param.P as u128;
 	let R3 = param.useR3 as u128;
@@ -134,13 +133,16 @@ pub fn test_suit(corrections: &Vec<Vec<u64>>, param: &Param) -> bool {
 		P, param.useR2 as u128, R3,
 		param.useD2, param.useD3, 3*param.L, param.L, M
 	);
-
+	println!("EC reconstruct recvShares:{} > 2*d2:{:?}, d3:{}", M, param.useD2, param.useD3);
 	let mut evalPoints = Vec::new();
 	let mut corrections_remove_empty = Vec::new();
 	for j in 0..M {
-		evalPoints.push(R3.modpow((j+1) as u128, P) as u64);
-		corrections_remove_empty.push(corrections[j].clone());
+		if corrections[j].len() != 0 {
+	    	evalPoints.push(R3.modpow((j+1) as u128, P) as u64);
+			corrections_remove_empty.push(corrections[j].clone());
+		}
 	}
+	println!("remove_empty {:?}, sharesPoints {}", corrections_remove_empty.len(), evalPoints.len());
 	let result = pss.reconstruct2(&corrections_remove_empty, evalPoints.as_slice());
 	/*
 		Todo: check Degree test in result[0..param.L] 
@@ -167,5 +169,6 @@ pub fn test_suit(corrections: &Vec<Vec<u64>>, param: &Param) -> bool {
 	if sum != 0 {
 		return false;
 	}
+	println!("EC true");
 	return true;
 }

@@ -563,7 +563,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 	pub fn error_correction(&mut self) -> Result<usize, ClientError> {
 	/*
 			Recv vecs for all tests
-			[[dorpouts], [Degree Test], [Input Bit Test], [Quadratic Test], 
+			[[dropouts], [Degree Test], [Input Bit Test], [Quadratic Test], 
 			 [Input bound test], [L2-norm sum test], [L2-norm bit test], [L2-norm bound test]]
 			Handle dropouts
 	*/
@@ -582,7 +582,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 		let waitRes = self.state_change_broadcast("EC");
 		let BENCH_TIMER = Instant::now();
 
-		let mut dorpouts;
+		let mut dropouts;
 		let (mut degree_rand, mut input_bit_rand, mut quadratic_rand, mut input_bound_rand, 
 			mut l2_norm_bit_rand, mut l2_norm_sum_rand, mut l2_norm_bound_rand, mut l2_norm_bound_shares);
 		match waitRes {
@@ -590,7 +590,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 				if m.len() != 9 {
 					return Err(ClientError::UnexpectedRecv(RecvType::matrix(m)));
 				}
-				dorpouts = read_le_u64(m[0].clone());
+				dropouts = read_le_u64(m[0].clone());
 				degree_rand = read_le_u64(m[1].clone());
 				input_bit_rand = read_le_u64(m[2].clone());
 				quadratic_rand = read_le_u64(m[3].clone());
@@ -602,6 +602,8 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 			},
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
+		println!("{:?} recv dropout {:?}", self.ID, dropouts);
+
 	/*
 			Comput tests only for those who didn't dropout
 			Leave tests_bytes empty for row_i if client_i dropouts
@@ -614,10 +616,13 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 				cn:  [t1, t2....t3]]
 			We don't remove anyone cuz resizing array is slow
 	*/
-		let mut msg = Vec::new();
+		let mut msg = vec![Vec::new(); N];
 		for i in 0..N {
 			let mut tests = Vec::new();
-			if !dorpouts.contains(&(i as u64)) { 
+			if dropouts.contains(&(i as u64)) {
+				println!("{:?}", self.shares[i]);
+			}
+			if !dropouts.contains(&(i as u64)) { 
 				assert!(self.shares[i] != vec![0u64]);
 				tests = vec![0u64; 3];
 
@@ -690,6 +695,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 					sumY += y % P;
 				}
 				// r * (sum(y) - ySum)
+				//println!("at 698 {:?} Calculate #{:?}", self.ID, i);
 				L2NST = (sumY + P - self.shares[i][(2*V)/L] as u128) * (l2_norm_sum_rand[0] as u128) % P;
 				
 				// L2-norm bound test
@@ -710,7 +716,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 				let sumB = ((IBDT + L2NST + L2NBDT) % P + self.shares[i][(2*V + L + Y + L*S*B + 2*L)/L] as u128) % P;
 				tests[2] = (sumB as u64).try_into().unwrap();
 			}
-			msg.push(write_u64_le_u8(tests.as_slice()).to_vec());
+			msg[i] = write_u64_le_u8(tests.as_slice()).to_vec();
 		}
 		println!("State 5 elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), self.ID);
 		match send_vecs(&self.sender, msg) {
@@ -731,11 +737,10 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 		let L = self.param.unwrap().L;
 		let B = V/L;
 		let P = self.param.unwrap().P;
-
 		let waitRes = self.state_change_broadcast("AG");
 		let BENCH_TIMER = Instant::now();
 		let dropouts = match waitRes {
-			RecvType::bytes(b) => read_le_u64(b),
+			RecvType::matrix(m) => read_le_u64(m[0].clone()),
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
 		println!("{:?} aggregation, skipping {:?}", self.ID, dropouts);
@@ -776,10 +781,10 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 				Ok(guard) => {
 					match guard.get(curState) {
 						Some(m) => return m.clone(),
-						None => sleep(Duration::from_millis(50)),
+						None => sleep(Duration::from_millis(5)),
 					}
 				},
-				Err(_) => return RecvType::string("".to_string()),
+				Err(_) => continue,
 			};
 		}
 	}

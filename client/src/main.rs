@@ -114,7 +114,6 @@ fn main() {
 		},
 	}
 
-
     client.aggregation().unwrap();
 	println!("Total elapse {:?}ms ({})", BENCH_TIMER.elapsed().as_millis(), &args[1]);
 

@@ -118,20 +118,13 @@ pub fn sub_task(subscriber: zmq::Socket,
         if buffer.read().unwrap().contains_key(&topic) {
             continue;
         }
-        if topic == b"EC" {
+        if topic == b"EC" || topic == b"AG" {
         	match data {
         		// m = [[dorpouts], [degree test], [Input Bit test], ....]
         		RecvType::matrix(ref m) => sender.send(read_le_u64(m[0].clone())),
         		_ => return Err(ClientError::UnexpectedRecv(data)),
         	};
         }
-		if topic == b"AG" {
-			match data {
-				// m = [dropouts]
-        		RecvType::bytes(ref b) => sender.send(read_le_u64(b.clone())),
-        		_ => return Err(ClientError::UnexpectedRecv(data)),
-        	};
-		}
         match buffer.write() {
             Ok(mut guard) => guard.insert(topic, data),
             Err(_) => return Err(ClientError::MutexLockFail(0)),

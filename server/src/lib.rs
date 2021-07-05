@@ -254,15 +254,15 @@ impl Server {
 						let mut new_dropouts = Vec::new();
 						for (i, c) in list.iter().enumerate() {
 							if !profiles.get(c).unwrap().hasShared {
-								new_dropouts.extend(&(i.to_le_bytes()));
+								new_dropouts.extend(&(i as u64).to_le_bytes());
 								dropouts.push(i);
 							}
 						}
+					   	let mut msg = vec![Vec::new(); 9];
+					   	msg[0] = new_dropouts;
 						println!("IS dropouts {:?}", dropouts);
 						if self.malFg {
 							// msg = [[dorpouts], [degree test], [Input Bit test], ....]
-					   		let mut msg = vec![Vec::new(); 9];
-					   		msg[0] = new_dropouts;
 							let L = param.L;
 							let B = self.V / L;
 							let S = self.S.unwrap();
@@ -323,7 +323,8 @@ impl Server {
 							*corrections = vec![vec![Vec::new(); M]; M];
 							publish_vecs(&publisher, msg, "EC");
 						} else {
-							publish(&publisher, new_dropouts, "AG");
+							msg[1].extend(&23423399994u64.to_le_bytes());
+							publish_vecs(&publisher, msg, "AG");
 						}
 						timerTx.send(self.sessTime)
 					},
@@ -332,21 +333,13 @@ impl Server {
 							msg = [clients who dropouts or fail tests]
 						*/
 						println!("EC dropouts {:?}", dropouts);
-						let mut pss = PackedSecretSharing::new(
-                                param.P as u128, param.useR2 as u128, param.useR3 as u128,
-                                param.useD2, param.useD3, 3*param.L, param.L, M
-                        );
                         let mut ThreadPool = Vec::new();
                         for i in 0..M {
-							let mut j = 0;
-							while j < M && corrections[i][j].len() == 0 {
-								// if row_i is empty then party_i must dropout from last round
-								j += 1;
-								if j == M { 
-									dropouts.push(i); 
-									continue;
-								}
-							}
+                        	let mut j = 0;
+                        	while j < M && corrections[i][j].len() == 0 {
+                        		j+=1;
+                        	}
+                        	if j == M {continue;}
                             let corrections_ = (corrections[i]).clone();
 							let param_ = (*param).clone();
 							let child = thread::spawn(move || {
@@ -354,6 +347,7 @@ impl Server {
 							});
 							ThreadPool.push(child);
 						}
+						println!("ThreadPool size {:?}", ThreadPool.len());
                         let mut cnt = 0;
 						for t in ThreadPool {
 							let is_pass = t.join().unwrap();
@@ -362,9 +356,10 @@ impl Server {
 							}
 							cnt += 1;
 						}
-					   	let mut msg = Vec::new();
-						msg.extend(write_usize_le_u8(dropouts.as_slice()));
-						publish(&publisher, msg, "AG");
+					   	let mut msg = vec![Vec::new(); 2];
+						msg[0].extend(write_usize_le_u8(dropouts.as_slice()));
+						msg[1].extend(&23423399994u64.to_le_bytes());
+						publish_vecs(&publisher, msg, "AG");
 						timerTx.send(self.sessTime)
 					},
 					5 => { 
@@ -652,6 +647,7 @@ impl Server {
 
 	fn result_collection(&self, 
 		worker: &Worker, clientID: Vec<u8>, msg: RecvType) -> Result<usize, WorkerError> {
+		println!("result_collection");
 	/*
 		Check client exist
 		Get shares & signature
@@ -694,6 +690,7 @@ impl Server {
 				.read().unwrap()
 				.iter().position(|s| s == &clientID)
 				.unwrap();
+		println!("recv aggregated share from #{:?}", idx);
 		match verifyResult {
 			Ok(_) => {
 				let mut shares = self.shares.lock().unwrap();
@@ -737,6 +734,7 @@ impl Server {
 		let mut shares_remove_empty = Vec::new();
 		for i in 0..M {
 			if shares[i].len() == 0 {
+				println!("skip {:?} {:?}", i, shares[i]);
 		    	continue;
 			}
 			sharesPoints.push(R3.modpow((i+1) as u128, P) as u64);
