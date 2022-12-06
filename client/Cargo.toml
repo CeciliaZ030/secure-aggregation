@@ -1,0 +1,12 @@
+[package]
+name = "client"
+version.workspace = true
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.66"
+zmq = "0.10.0"
+p256 = {version="0.11.1", feature=["ecdsa", "ecdh"]}
+aes-gcm = "0.10.1"

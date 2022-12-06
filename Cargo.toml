@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "server",
+    "client",
+    "router",
+    "pss"
+]
+
+[workspace.package]
+version = "0.0.2"
+edition = "2021"
