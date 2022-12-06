@@ -22,7 +22,7 @@ use p256::{
 	EncodedPoint,
 	ecdh::{EphemeralSecret, SharedSecret},
     ecdsa::{
-    	SigningKey, Signature, signature::Signer, 
+    	SigningKey, Signature, signature::Signer,
     	VerifyKey, signature::Verifier
     }
 };
@@ -77,7 +77,7 @@ pub struct Client{
 
 	clientVerikeys: Vec<Vec<u8>>,
 	shareKeys: HashMap<Vec<u8>, Vec<u8>>, 	// {key: DH pubKey, value: DH shareKey}
-	shareOrder:  Vec<Vec<u8>>,				/* [pk_c1, pk_c2, ....] 
+	shareOrder:  Vec<Vec<u8>>,				/* [pk_c1, pk_c2, ....]
 											all clients assign shares in this order
 											*/
 	vectorSize: usize,
@@ -88,7 +88,7 @@ pub struct Client{
 
 
 impl Client{
-	
+
 	pub fn new(ID: &str, vectorSize: usize, inputBitLimit: Option<usize>,
 		ip: Option<&str>, port1: usize, port2: usize) -> Client{
 
@@ -103,7 +103,7 @@ impl Client{
 				addr1 = format!("tcp://{}:{:?}", address, port1);
 				addr2 = format!("tcp://{}:{:?}", address, port2);
 				println!("Sender connecting {}", addr1);
-				println!("Subscriber connecting to {}", addr2);			
+				println!("Subscriber connecting to {}", addr2);
 			},
 			None => {
 				addr1 = format!("tcp://localhost:{:?}", port1);
@@ -149,7 +149,7 @@ impl Client{
 
 			clientVerikeys: Vec::<Vec<u8>>::new(),
 			shareKeys: HashMap::new(),
-			shareOrder: Vec::<Vec<u8>>::new(),				
+			shareOrder: Vec::<Vec<u8>>::new(),
 			vectorSize: vectorSize,
 			inputBitLimit: inputBitLimit,
 			param: None,
@@ -194,7 +194,7 @@ impl Client{
 			},
 			_ => return Err(ClientError::UnexpectedRecv(waitRes)),
 		};
-		println!("State 1 elapse {:?}ms ({})", 
+		println!("State 1 elapse {:?}ms ({})",
 			(BEFORE-BENCH_TIMER+AFTER.elapsed()).as_millis(), self.ID);
 		return Ok(1)
 	}
@@ -202,7 +202,7 @@ impl Client{
 
 	pub fn key_exchange(&mut self) -> Result<usize, ClientError> {
 		let BENCH_TIMER = Instant::now();
-	/*		 
+	/*
 			Generate Deffie-Helman key
 			Sign DH key and send
 	*/
@@ -221,7 +221,7 @@ impl Client{
 			RecvType::string(s) => (),
 			_ => return Err(ClientError::UnexpectedRecv(msg)),
 		};
-	/*		 
+	/*
 			Wait for state change
 			Server recv all DH keys
 			and sends everyone DH key list
@@ -245,14 +245,14 @@ impl Client{
 			};
 		}
 		self.shareOrder = publicKeys;
-		println!("State 2 elapse {:?}ms ({})", 
+		println!("State 2 elapse {:?}ms ({})",
 			(BEFORE-BENCH_TIMER+AFTER.elapsed()).as_millis(), self.ID);
-		return Ok(2) 
+		return Ok(2)
 	}
-	
+
 
 	pub fn input_sharing_ml(&mut self, input: &mut Vec<u64>) -> Result<usize, ClientError> {
-	/*		 
+	/*
 			Wait for state change
 			Recv sharing parameters
 			Calculate EC matrix: [x, y, randomness...]
@@ -279,7 +279,7 @@ impl Client{
 			D3: sharingParams[4] as usize,
 			L: sharingParams[5] as usize,			// in semi-honest, L = D2
 		};
-		
+
 		let N = self.shareKeys.len();
 		let V = self.vectorSize;
 		let L = param.L;
@@ -339,7 +339,7 @@ impl Client{
 		// Insert ysum
 		input.push(ySum);
 		input.extend(vec![0; L-1]);
-		
+
 
 		// Insert bits of ysum
 		//	bitnum of ysum <= L
@@ -379,9 +379,9 @@ impl Client{
 
 		assert!(input.len() == 2*V + L + Y + L*S*B + 3*L);
 		let mut pss = PackedSecretSharing::new(
-			param.P, param.R2, param.R3, 
+			param.P, param.R2, param.R3,
 			param.D2, param.D3,
-			2*V+L+Y+L*S*B+3*L, 
+			2*V+L+Y+L*S*B+3*L,
 			L, N
 		);
 		let SHARE_START = Instant::now();
@@ -389,13 +389,13 @@ impl Client{
 		assert!(resultMatrix.len() == N);
 		assert!(resultMatrix[0].len() == (2*V + L + Y + L*S*B + 3*L)/L);
 		println!("{:?} sharing time {:?}", self.ID, SHARE_START.elapsed().as_millis());
-	/* 
+	/*
 		 	Encrypt shares for each DH sharedKey
 			send [shares_c1, shares_c2, ....  ]
 	*/
 		let mut msg = Vec::new();
 		for (i, pk) in self.shareOrder.iter().enumerate() {
-			
+
 			let shareKey = self.shareKeys.get(pk).unwrap();
 			let k = GenericArray::from_slice(&shareKey);
 			let cipher = Aes256Gcm::new(k);
@@ -406,7 +406,7 @@ impl Client{
 			}
 			let encryptedShares = cipher.encrypt(nonce, shareBytes
 										.as_slice())
-		    					   		.expect("encryption failure!");	
+		    					   		.expect("encryption failure!");
 		    msg.push(encryptedShares);
 		}
 		self.param = Some(param);
@@ -419,8 +419,8 @@ impl Client{
 		};
 	}
 
-pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, ClientError> {
-	/*		 
+	pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, ClientError> {
+	/*
 			Wait for state change
 			Recv sharing parameters
 			Perform pss
@@ -446,7 +446,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 			D3: sharingParams[4] as usize,
 			L: sharingParams[5] as usize,
 		};
-		
+
 		let N = self.shareKeys.len();
 		let V = self.vectorSize;
 		let L = param.L;
@@ -455,7 +455,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 
 		assert!(input.len() == V);
 		let mut pss = PackedSecretSharing::new(
-			param.P, param.R2, param.R3, 
+			param.P, param.R2, param.R3,
 			param.D2, param.D3,
 			V, L, N
 		);
@@ -464,13 +464,13 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 		assert!(resultMatrix.len() == N);
 		assert!(resultMatrix[0].len() == B);
 		println!("{:?} sharing time {:?}", self.ID, SHARE_START.elapsed().as_millis());
-	/* 
+	/*
 		 	Encrypt shares for each DH sharedKey
 			send [shares_c1, shares_c2, ....  ]
 	*/
 		let mut msg = Vec::new();
 		for (i, pk) in self.shareOrder.iter().enumerate() {
-			
+
 			let shareKey = self.shareKeys.get(pk).unwrap();
 			let k = GenericArray::from_slice(&shareKey);
 			let cipher = Aes256Gcm::new(k);
@@ -481,7 +481,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 			}
 			let encryptedShares = cipher.encrypt(nonce, shareBytes
 										.as_slice())
-		    					   		.expect("encryption failure!");	
+		    					   		.expect("encryption failure!");
 		    msg.push(encryptedShares);
 		}
 		self.param = Some(param);
@@ -496,7 +496,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 
 	pub fn shares_recieving(&mut self) -> Result<usize, ClientError> {
 		let BENCH_TIMER = Instant::now();
-	/* 
+	/*
 			Loop to collect shares
 			For each shares, Dec(sharedKey, msg)
 			Then add to sum
@@ -532,7 +532,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 								Aes256Gcm::new(k)
 	        	 			},
 	        	 			None => {
-	        	 				println!("fail get client"); 
+	        	 				println!("fail get client");
 	        	 				return Err(ClientError::UnidentifiedShare(4));
 	        	 			},
 	        	 		};
@@ -540,7 +540,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 			 			let plaintext = match cipher.decrypt(nonce, m[1].as_ref()) {
 			 				Ok(p) => read_le_u64(p),
 			 				Err(_) => {
-			 					println!("fail decrypt"); 
+			 					println!("fail decrypt");
 			 					return Err(ClientError::EncryptionError(4));
 			 				}
 			 			};
@@ -563,7 +563,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 	pub fn error_correction(&mut self) -> Result<usize, ClientError> {
 	/*
 			Recv vecs for all tests
-			[[dropouts], [Degree Test], [Input Bit Test], [Quadratic Test], 
+			[[dropouts], [Degree Test], [Input Bit Test], [Quadratic Test],
 			 [Input bound test], [L2-norm sum test], [L2-norm bit test], [L2-norm bound test]]
 			Handle dropouts
 	*/
@@ -583,7 +583,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 		let BENCH_TIMER = Instant::now();
 
 		let mut dropouts;
-		let (mut degree_rand, mut input_bit_rand, mut quadratic_rand, mut input_bound_rand, 
+		let (mut degree_rand, mut input_bit_rand, mut quadratic_rand, mut input_bound_rand,
 			mut l2_norm_bit_rand, mut l2_norm_sum_rand, mut l2_norm_bound_rand, mut l2_norm_bound_shares);
 		match waitRes {
 			RecvType::matrix(m) => {
@@ -607,7 +607,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 	/*
 			Comput tests only for those who didn't dropout
 			Leave tests_bytes empty for row_i if client_i dropouts
-			msg = 
+			msg =
 				c0: [[t1, t2....t3]
 				c1:  [t1, t2....t3]
 				...
@@ -622,7 +622,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 			if dropouts.contains(&(i as u64)) {
 				println!("{:?}", self.shares[i]);
 			}
-			if !dropouts.contains(&(i as u64)) || self.shares[i] != vec![0u64] { 
+			if !dropouts.contains(&(i as u64)) || self.shares[i] != vec![0u64] {
 				tests = vec![0u64; 3];
 
 				// Degree Test
@@ -663,7 +663,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 					L2NBTT %= P;
 				}
 
-			/* 
+			/*
 			sum of three tests + randomness A generated by Party i (all 0)
 			*/
 				let sumA = ((IBTT + QT + L2NBTT) % P + self.shares[i][(2*V + L + Y + L*S*B + 1*L)/L] as u128) % P;
@@ -696,7 +696,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 				// r * (sum(y) - ySum)
 				//println!("at 698 {:?} Calculate #{:?}", self.ID, i);
 				L2NST = (sumY + P - self.shares[i][(2*V)/L] as u128) * (l2_norm_sum_rand[0] as u128) % P;
-				
+
 				// L2-norm bound test
 				let mut L2NBDT;
 				let ySum = self.shares[i][(2*V)/L] as u128;
@@ -708,8 +708,8 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 					share_sum %= P;
 				}
 				L2NBDT = (ySum + P - share_sum) % P * (l2_norm_bound_rand[0] as u128) % P;
-				
-			/* 
+
+			/*
 			sum of three tests + canceling randomness B generated by Party i (sum to 0)
 			*/
 				let sumB = ((IBDT + L2NST + L2NBDT) % P + self.shares[i][(2*V + L + Y + L*S*B + 2*L)/L] as u128) % P;
@@ -727,7 +727,7 @@ pub fn input_sharing_sh(&mut self, input: &mut Vec<u64>) -> Result<usize, Client
 	}
 
 	pub fn aggregation(&self) -> Result<usize, ClientError> {
-	/* 
+	/*
 		 	N*N shares
 		 	Skip the rows of Ci who dropouts or fail
 		 	Send [agggregation_bytes, signature]s
