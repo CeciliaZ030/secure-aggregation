@@ -40,7 +40,7 @@ impl ClientRouter {
     pub fn new() -> Result<Self> {
 
         let context = Context::new();
-        let send_recv = context.socket(zmq::DEALER)?;
+        let send_recv = context.socket(zmq::REQ)?;
         let pub_sub = context.socket(zmq::SUB)?;
         send_recv.connect(format!("{}{}", LOCALHOST, PORT1).as_str())?;
         pub_sub.connect(format!("{}{}", LOCALHOST, PORT2).as_str())?;

@@ -1,11 +1,20 @@
 use std::ops::Deref;
+use std::convert::TryFrom;
 use anyhow::*;
 use p256::ecdsa::signature::Signature;
 use p256::elliptic_curve::AffinePoint;
 use p256::elliptic_curve::group::GroupEncoding;
 use p256::NistP256;
-use zmq::Message;
+use zmq::{Message, Sendable, Socket};
 
+pub type ID<'a> = &'a [u8];
+
+
+pub enum State {
+    Handshake,
+    KeyExchange,
+    InputSharing,
+}
 
 pub enum ClientMessage {
     Handshake(HandshakeReq),
@@ -13,24 +22,36 @@ pub enum ClientMessage {
     InputSharing(InputSharingReq),
 }
 
-pub enum ServerMessage {
-    // Handshake(HandshakeRes),
-    // KeyExchange(KeyExchangeRes),
-    //ParamBroadcast(Params),
+#[Derive(Debug)]
+pub enum ServerMessageType {
+    Handshake,
+    KeyExchange,
+    ParamBroadcast,
     InputForward,
 }
+impl TryFrom<ServerMessageType> for Message {
+    type Error = anyhow::Error;
 
-pub struct HandshakeReq {
-    auth_key: p256::ecdsa::VerifyingKey,
-    message: String,
+    fn try_from(value: ServerMessageType) -> Result<Message> {
+        match value {
+            ServerMessageType::Handshake => Ok(Message::from("HS")),
+            ServerMessageType::KeyExchange => Ok(Message::from("KE")),
+            _ => anyhow!("Unknown server message type")
+        }
+    }
 }
-pub struct KeyExchangeReq {
-    ecdh_pubkey: p256::PublicKey,
-    enc_ecdh_pubkey:  p256::ecdsa::Signature,
-}
-pub struct InputSharingReq {
-    shares: Vec<u8>,
-}
+
+// pub struct HandshakeReq {
+//     auth_key: p256::ecdsa::VerifyingKey,
+//     message: String,
+// }
+// pub struct KeyExchangeReq {
+//     ecdh_pubkey: p256::PublicKey,
+//     enc_ecdh_pubkey:  p256::ecdsa::Signature,
+// }
+// pub struct InputSharingReq {
+//     shares: Vec<u8>,
+// }
 
 impl From<HandshakeReq> for Vec<Message> {
     fn from(req: HandshakeReq) -> Self {

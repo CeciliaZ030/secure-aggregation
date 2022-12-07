@@ -541,6 +541,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "p256",
+ "server",
  "zmq",
 ]
 
@@ -583,8 +584,10 @@ checksum = "e53f64bb4ba0191d6d0676e1b141ca55047d83b74f5607e6d8eb88126c52c2dc"
 name = "server"
 version = "0.0.2"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "p256",
+ "zmq",
 ]
 
 [[package]]

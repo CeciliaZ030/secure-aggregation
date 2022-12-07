@@ -3,6 +3,7 @@ use std::fmt::format;
 use std::convert::*;
 use std::ops::Deref;
 use std::sync::mpsc;
+use std::thread::{JoinHandle, spawn};
 use anyhow::{Error, Result, anyhow};
 use p256;
 use aes_gcm;
@@ -12,85 +13,90 @@ use p256::elliptic_curve::AffinePoint;
 use p256::elliptic_curve::group::GroupEncoding;
 use p256::NistP256;
 use zmq::{Context, Socket, Message};
-use crate::ClientMessage::*;
+use crate::types::{ID, ServerMessage, ServerMessageType, State};
 
 const LOCALHOST: &'static str = "tcp://localhost:";
+const INPROC: &'static str = "inproc://backend:";
 const PORT1: u64 = 7777;
 const PORT2: u64 = 7676;
+const PORT3: u64 = 7878;
 
-pub struct ClientRouter {
+pub struct ServerRouter {
     context: Context,
-    send_recv: Socket,
-    pub_sub: Socket,
-    subscriptions: HashMap<String, Option<Vec<Message>>>,
-    notifyer: mpsc::Sender<String>
+    frontend: Socket,
+    backend: Socket,
+    publisher: Socket,
+    workers: Vec<JoinHandle<Result<()>>>,
+
+    tx_pool: HashMap<String, HashMap<State, Vec<Message>>>,
 }
 
-impl ClientRouter {
+impl ServerRouter {
 
-    pub fn new(notifyer: mpsc::Sender<String>) -> Result<Self>
-    {
+    pub fn new(worker_num: u64) -> Result<Self> {
         let context = Context::new();
-        let send_recv = context.socket(zmq::DEALER)?;
-        let pub_sub = context.socket(zmq::SUB)?;
-        send_recv.connect(format!("{}{}", LOCALHOST, PORT1).as_str())?;
-        pub_sub.connect(format!("{}{}", LOCALHOST, PORT2).as_str())?;
+        let frontend = context.socket(zmq::ROUTER)?;
+        let backend = context.socket(zmq::DEALER)?;
+        let publisher = context.socket(zmq::PUB)?;
+
+        frontend.bind(format!("{:?}{:?}", LOCALHOST, PORT1).as_str())?;
+        backend.bind(format!("{:?}{:?}", INPROC, PORT3).as_str())?;
+        publisher.bind(format!("{:?}{:?}", INPROC, PORT2).as_str())?;
+
+        zmq::proxy(&frontend, &backend)?;
+
+        let ctx = context.clone();
+        let mut workers = Vec::new();
+
         Ok(Self {
             context,
-            send_recv,
-            pub_sub,
-            subscriptions: HashMap::<String, Option<Vec<Message>>>::new(),
-            notifyer
+            frontend,
+            backend,
+            publisher,
+            workers,
+            tx_pool: HashMap::<String, HashMap<State, Vec<Message>>>::new(),
         })
     }
 
-    pub fn new_with_port(
-        notifyer: mpsc::Sender<String>,
-        send_recv_port:
-        u64, pub_sub_port: u64
-    ) -> Result<Self>
-    {
-        let context = Context::new();
-        let send_recv = context.socket(zmq::DEALER)?;
-        let pub_sub = context.socket(zmq::SUB)?;
-        send_recv.connect(format!("{}{}", LOCALHOST, send_recv_port).as_str())?;
-        pub_sub.connect( format!("{}{}", LOCALHOST, pub_sub_port).as_str())?;
-        Ok(Self {
-            context,
-            send_recv,
-            pub_sub,
-            subscriptions: HashMap::<String,  Option<Vec<Message>>>::new(),
-            notifyer
-        })
-    }
-
-    pub fn send(&self, msg: Vec<Message>) -> Result<()> {
-        for m in msg {
-            self.send_recv.send(m, 0)?;
+    pub fn run_workers(&mut self, num: u64) -> Result<()> {
+        let ctx = self.context.clone();
+        for i in 0..num {
+            let handle = spawn(|| -> Result<()> {
+                let worker = ctx.socket(zmq::REP)?;
+                worker.bind(format!("{:?}{:?}", INPROC, PORT1).as_str())?;
+                loop {
+                    let id = worker.recv_msg(zmq::DONTWAIT)?;
+                    let (msg_type, msgs) = Self::_receive(&worker)?;
+                    match msg_type {
+                        ServerMessageType::Handshake => handshake(),
+                        ServerMessageType::KeyExchange => Ok(Message::from("KE")),
+                        _ => anyhow!("Unknown server message type")
+                    }
+                }
+                Ok(())
+            });
+            self.workers.push(handle);
         }
         Ok(())
     }
 
-    pub fn receive(&self) -> Result<Vec<Message>> {
+    fn _send(worker: &Socket, id: ID, msg: Vec<Message>) -> Result<()> {
+        worker.send(id, zmq::SNDMORE);
+        for m in msg {
+            worker.send(m, 0)?;
+        }
+        Ok(())
+    }
+
+    fn _receive(worker: &Socket) -> Result<(ServerMessageType, Vec<Message>)> {
         let mut msgs = Vec::<Message>::new();
-        while self.send_recv.get_rcvmore()? {
-            msgs.push(self.send_recv.recv_msg(0)?);
+        while worker.get_rcvmore()? {
+            msgs.push(worker.recv_msg(0)?);
         }
-        Ok(msgs)
+        let ty = msgs[0].try_into()?;
+        Ok((ty, msgs[1..].to_vec()))
     }
 
-    pub fn subscribe(&mut self, topic: &str) {
-        self.subscriptions.insert(topic.to_string(), None);
-    }
-
-    pub fn get_subscription(&self, topic: &str) -> Result<&Vec<Message>> {
-        if let Some(v) = self.subscriptions.get(topic) {
-            if let Some(msg) = v {
-                return Ok(msg)
-            }
-        }
-        Err(anyhow!("no subscription"))
-    }
 }
 
 
