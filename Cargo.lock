@@ -541,7 +541,6 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "p256",
- "server",
  "zmq",
 ]
 
@@ -587,6 +586,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "p256",
+ "router",
  "zmq",
 ]
 

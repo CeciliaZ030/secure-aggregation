@@ -15,6 +15,7 @@ use p256::NistP256;
 use zmq::{Context, Socket, Message};
 use crate::types::{ID, ServerMessage, ServerMessageType, State};
 
+
 const LOCALHOST: &'static str = "tcp://localhost:";
 const INPROC: &'static str = "inproc://backend:";
 const PORT1: u64 = 7777;
@@ -58,27 +59,6 @@ impl ServerRouter {
         })
     }
 
-    pub fn run_workers(&mut self, num: u64) -> Result<()> {
-        let ctx = self.context.clone();
-        for i in 0..num {
-            let handle = spawn(|| -> Result<()> {
-                let worker = ctx.socket(zmq::REP)?;
-                worker.bind(format!("{:?}{:?}", INPROC, PORT1).as_str())?;
-                loop {
-                    let id = worker.recv_msg(zmq::DONTWAIT)?;
-                    let (msg_type, msgs) = Self::_receive(&worker)?;
-                    match msg_type {
-                        ServerMessageType::Handshake => handshake(),
-                        ServerMessageType::KeyExchange => Ok(Message::from("KE")),
-                        _ => anyhow!("Unknown server message type")
-                    }
-                }
-                Ok(())
-            });
-            self.workers.push(handle);
-        }
-        Ok(())
-    }
 
     fn _send(worker: &Socket, id: ID, msg: Vec<Message>) -> Result<()> {
         worker.send(id, zmq::SNDMORE);
