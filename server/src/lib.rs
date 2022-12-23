@@ -1,57 +1,105 @@
-mod worker;
-
-use std::sync::{Arc, Mutex, RwLock};
+use std::collections::HashMap;
+use std::ops::DerefMut;
+use std::sync::{Arc, RwLock};
 use std::thread::{JoinHandle, spawn};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use zmq::{Context, Message, Socket};
 use router::server::ServerRouter;
-use router::types::ServerMessageType;
-use crate::worker::Worker;
+use router::server::*;
+use router::types::*;
+
+mod worker;
+use worker::*;
+use crate::ServerState::*;
+
+const NUM_WORKERS: u64 = 8;
+const MAX_CLIENTS: u64 = 8;
 
 
 pub struct Server {
-    clientList: Arc<RwLock<Vec<p256::ecdsa::VerifyingKey>>>,
     context: Context,
     router: ServerRouter,
     workers: Vec<JoinHandle<Result<()>>>,
+    state: Arc<RwLock<ServerState>>,
+    client_profiles: Arc<RwLock<HashMap<ID, Profile>>>,
+
+}
+
+#[derive(Default, Clone)]
+pub struct Profile {
+    pub auth_key: Option<p256::ecdsa::VerifyingKey>,
+    pub ecdh_pubkey: Option<p256::PublicKey>,
+    pub shares: Option<Vec<u8>>
+}
+
+#[derive(Default, Clone)]
+pub enum ServerState {
+    #[default]
+    Default,
+    Handshake,
+    KeyExchange,
+    InputSharing
 }
 
 impl Server {
-    pub fn new() -> Self {
-        let clientList = Vec::<p256::ecdsa::VerifyingKey>::new();
-        let mut server = Self {
-            clientList: Arc::new(RwLock::new(clientList)),
-            context: Context::new(),
-            router: ServerRouter::new(10)?,
-            workers: Vec::new()
+    pub fn new() -> Result<Self> {
+        let context = zmq::Context::new();
+        let router = ServerRouter::new(context.clone())?;
+        let state = ServerState::default();
+        let client_profiles = HashMap::<ID, Profile>::new();
+        let workers = Vec::new();
+        let mut server = Server {
+            context,
+            router,
+            workers,
+            state: Arc::new(RwLock::new(state)),
+            client_profiles: Arc::new(RwLock::new(client_profiles)),
         };
-        server.run_workers(8);
+        Ok(server)
     }
 
-    pub fn run_workers(&mut self, num: u64) -> Result<()> {
-        let ctx = self.context.clone();
-        for _ in 0..num {
-            let handle = spawn(|| -> Result<()> {
+    pub fn init(&mut self) -> Result<()> {
+        use ServerState::*;
+        *self.state.write().unwrap() = Handshake;
+        self.spawn_workers()?;
+        loop {
+            let cur_state = &*self.state.read().unwrap();
+            match cur_state {
+                Handshake => self.handshake_transit()?,
+                KeyExchange => self.keyexchange_transit()?,
+                _ => {}
+            };
+        }
+    }
+
+    pub fn spawn_workers(&mut self) -> Result<Vec<JoinHandle<Result<()>>>> {
+        let mut threads = Vec::new();
+        for _ in 0..NUM_WORKERS {
+            let ctx = self.context.clone();
+            let state = self.state.clone();
+            let client_profiles = self.client_profiles.clone();
+            let t = spawn(move || -> Result<()> {
                 let socket = ctx.socket(zmq::REP)?;
-                socket.bind(format!("{:?}{:?}", INPROC, PORT1).as_str())?;
-                let worker = Worker::new(
-                    socket,
-                    self.clientList.clone()
-                );
+                socket.connect(format!("{}{}", LOCALHOST, PORT_PUB).as_str())?;
+                let worker = Worker::new(ctx, client_profiles)?;
                 loop {
-                    let id = worker.recv_msg(zmq::DONTWAIT)?;
-                    let (msg_type, msgs) = Self::_receive(&worker)?;
-                    match msg_type {
-                        ServerMessageType::Handshake => handshake(),
-                        ServerMessageType::KeyExchange => Ok(Message::from("KE")),
-                        _ => anyhow!("Unknown server message type")
-                    }
+                    worker.run_task(&*state.read().unwrap())?;
                 }
-                Ok(())
             });
-            self.workers.push(handle);
+            threads.push(t);
+        }
+        Ok(threads)
+    }
+
+    pub fn handshake_transit(&self) -> Result<()> {
+        if self.client_profiles.read().unwrap().len() >= MAX_CLIENTS as usize {
+            *self.state.write().unwrap() = KeyExchange;
         }
         Ok(())
+    }
+
+    pub fn keyexchange_transit(&self) -> Result<()> {
+        todo!()
     }
 
 }
