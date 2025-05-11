@@ -1,4 +1,4 @@
-# Secure Aggregation Protocol Implementation
+# Secure Aggregation Protocol
 
 This repository contains an implementation of a secure aggregation protocol that enables multiple clients to compute the sum of their private vectors while maintaining privacy. The protocol uses packed secret sharing and supports dropout resilience and malicious security.
 
